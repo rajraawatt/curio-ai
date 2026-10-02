@@ -1,0 +1,19 @@
+{
+  "name": "curio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CURIO — a teacher-led classroom where a student's question transforms the shared world.",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c magenta,cyan \"npm run dev -w curio-backend\" \"npm run dev -w curio-frontend\"",
+    "build": "npm run build -w curio-frontend",
+    "start": "npm run start -w curio-backend",
+    "preview": "npm run build && npm start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
