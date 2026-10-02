@@ -4,10 +4,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { addQuestion, control, currentNarration, publicState, subscribe } from "./classroom.js";
 import { generateDiagram, healthInfo, startVeoClip, synthesizeSpeech } from "./gcp.js";
+import { prepareCellAssets, readCellPack, MOCK_CELL_SUMMARY } from "./prepareAssets.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "2mb" }));
 
 app.get("/api/health", (_req, res) => {
   res.json(healthInfo());
@@ -101,7 +102,82 @@ app.post("/api/veo", async (req, res) => {
   }
 });
 
+app.get("/api/prepare/assets", async (_req, res) => {
+  try {
+    const pack = await readCellPack();
+    res.json({
+      pack,
+      mockSummary: MOCK_CELL_SUMMARY.trim(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/prepare/assets", async (req, res) => {
+  const useStream = req.query.stream === "1" || req.headers.accept?.includes("text/event-stream");
+  const useGemini = req.body?.useGemini !== false;
+  const useVeo = Boolean(req.body?.useVeo);
+  const useTripo = Boolean(req.body?.useTripo);
+  const reuseExisting = Boolean(req.body?.reuseExisting);
+  const objectCount = Number(req.body?.objectCount) || 2;
+  const prompt =
+    typeof req.body?.prompt === "string" && req.body.prompt.trim()
+      ? req.body.prompt.trim()
+      : typeof req.body?.summary === "string" && req.body.summary.trim()
+        ? req.body.summary.trim()
+        : MOCK_CELL_SUMMARY;
+
+  if (useStream) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+    const send = (event, data) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    try {
+      send("status", { notice: "Prepare stream started" });
+      const pack = await prepareCellAssets({
+        prompt,
+        useGemini,
+        useVeo,
+        useTripo,
+        reuseExisting,
+        objectCount,
+        onProgress: async (partial) => {
+          send("pack", partial);
+        },
+      });
+      send("done", { ok: true, pack });
+    } catch (err) {
+      console.error("[prepare]", err);
+      send("error", { error: err.message });
+    } finally {
+      res.end();
+    }
+    return;
+  }
+
+  try {
+    const pack = await prepareCellAssets({
+      prompt,
+      useGemini,
+      useVeo,
+      useTripo,
+      reuseExisting,
+      objectCount,
+    });
+    res.status(201).json({ ok: true, pack });
+  } catch (err) {
+    console.error("[prepare]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const dist = process.env.FRONTEND_DIST || path.join(__dirname, "../../frontend/dist");
+const publicDir = path.join(__dirname, "../../frontend/public");
+app.use(express.static(publicDir));
 app.use(express.static(dist));
 app.get("*", (req, res) => {
   if (req.path.startsWith("/api")) return res.status(404).json({ error: "Not found" });

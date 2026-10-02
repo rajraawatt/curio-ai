@@ -61,6 +61,11 @@ export function Lobby() {
             />
             <a href={`/student?name=${encodeURIComponent(name || "Student")}`}>Join as {name || "Student"}</a>
           </article>
+          <a className="door prepare" href="/prepare">
+            <span>Studio</span>
+            <strong>Prepare assets</strong>
+            <em>Mock cell pack: summary → 3 detail 3D assets.</em>
+          </a>
         </div>
       </section>
 

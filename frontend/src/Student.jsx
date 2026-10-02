@@ -1,15 +1,9 @@
 import { useMemo, useState } from "react";
+import { RegionMarker } from "./components/RegionMarker.jsx";
 import { useClassroom } from "./useClassroom.js";
-import { listen } from "./speech.js";
-import { World } from "./World.jsx";
 import { Wordmark } from "./Lobby.jsx";
 
-const PROMPTS = [
-  "What is this rock made of?",
-  "How did the mountain become so tall?",
-  "Why are some rocks black?",
-  "Could we stand inside a crystal?",
-];
+const SAMPLE_FRAME = "/sample-lesson.svg";
 
 export function Student() {
   const { state, connected, send } = useClassroom();
@@ -17,7 +11,7 @@ export function Student() {
   const [name, setName] = useState(params.get("name") || "Aarav");
   const [text, setText] = useState("");
   const [panel, setPanel] = useState("ask");
-  const [listening, setListening] = useState(false);
+  const [selection, setSelection] = useState(null);
   const [error, setError] = useState("");
 
   async function ask(value, source = "text") {
@@ -25,8 +19,24 @@ export function Student() {
     if (!question) return;
     setError("");
     try {
-      await send("/api/questions", { name: name.trim() || "Student", text: question, source });
+      await send("/api/questions", {
+        name: name.trim() || "Student",
+        text: question,
+        source: selection ? "marker" : source,
+        region: selection
+          ? {
+              x: selection.x,
+              y: selection.y,
+              w: selection.w,
+              h: selection.h,
+              label: selection.label,
+              thumbnail: selection.thumbnail,
+              frame: SAMPLE_FRAME,
+            }
+          : null,
+      });
       setText("");
+      setSelection(null);
       setPanel("mine");
     } catch (err) {
       setError(err.message);
@@ -36,22 +46,6 @@ export function Student() {
   function toggleHand() {
     const up = !state?.hands?.some((hand) => hand.name === (name.trim() || "Student"));
     send("/api/control", { action: "raise", name: name.trim() || "Student", up }).catch((err) => setError(err.message));
-  }
-
-  function startVoice() {
-    setListening(true);
-    setError("");
-    listen(
-      state?.language || "en",
-      (heard) => {
-        setText(heard);
-        ask(heard, "voice");
-      },
-      (message) => {
-        setListening(false);
-        if (message) setError(message);
-      }
-    );
   }
 
   if (!state) return <main className="boot">Joining the classroom…</main>;
@@ -71,7 +65,13 @@ export function Student() {
         <span className={connected ? "dot on" : "dot"}>{connected ? `Room ${state.room}` : "Reconnecting"}</span>
       </header>
 
-      <World state={state} captions />
+      <RegionMarker
+        src={SAMPLE_FRAME}
+        alt="Lesson frame"
+        selection={selection}
+        onSelect={setSelection}
+        onClear={() => setSelection(null)}
+      />
 
       <div className="student-status">
         {state.phase === "transforming" && exploring ? (
@@ -81,7 +81,7 @@ export function Student() {
         ) : state.phase === "selected" ? (
           <p>The teacher has paused on a question.</p>
         ) : (
-          <p>The lesson is live. Ask when something in the world makes you curious.</p>
+          <p>Mark any part of the lesson frame, then ask what you are curious about.</p>
         )}
       </div>
 
@@ -92,44 +92,46 @@ export function Student() {
         <button type="button" className={panel === "ask" ? "on" : ""} onClick={() => setPanel("ask")}>
           Ask question
         </button>
-        <button type="button" className={panel === "chat" ? "on" : ""} onClick={() => setPanel("chat")}>
-          Chat
-        </button>
         <button type="button" className={panel === "mine" ? "on" : ""} onClick={() => setPanel("mine")}>
           My questions
         </button>
       </div>
 
-      {panel !== "mine" && (
+      {panel === "ask" && (
         <form
           className="composer"
           onSubmit={(event) => {
             event.preventDefault();
-            ask(text, panel === "chat" ? "chat" : "text");
+            ask(text, "text");
           }}
         >
-          <input
-            value={text}
-            placeholder={panel === "chat" ? "Send a thought to the class" : "Ask about something you see"}
-            onChange={(event) => setText(event.target.value)}
-          />
-          <button type="button" className={listening ? "mic on" : "mic"} onClick={startVoice}>
-            Mic
-          </button>
-          <button type="submit" className="primary">
-            Send
-          </button>
-        </form>
-      )}
-
-      {panel === "ask" && (
-        <div className="prompts">
-          {PROMPTS.map((prompt) => (
-            <button key={prompt} type="button" onClick={() => ask(prompt, "text")}>
-              {prompt}
+          {selection && (
+            <div className="composer-region">
+              {selection.thumbnail ? (
+                <img src={selection.thumbnail} alt="Selected region" />
+              ) : (
+                <span className="composer-region-fallback">Marked</span>
+              )}
+              <div>
+                <strong>Selected in frame</strong>
+                <p>This mark will go with your question</p>
+              </div>
+              <button type="button" onClick={() => setSelection(null)}>
+                Remove
+              </button>
+            </div>
+          )}
+          <div className="composer-row">
+            <input
+              value={text}
+              placeholder={selection ? "Ask about the marked area…" : "Ask about something you see"}
+              onChange={(event) => setText(event.target.value)}
+            />
+            <button type="submit" className="primary" disabled={!text.trim()}>
+              Send
             </button>
-          ))}
-        </div>
+          </div>
+        </form>
       )}
 
       {panel === "mine" && (
@@ -137,7 +139,12 @@ export function Student() {
           {mine.length === 0 && <li>Your questions will show up here, and on the teacher's screen.</li>}
           {mine.map((question) => (
             <li key={question.id}>
-              <strong>{question.text}</strong>
+              <div className="mine-main">
+                {question.region?.thumbnail && (
+                  <img className="mine-thumb" src={question.region.thumbnail} alt="" />
+                )}
+                <strong>{question.text}</strong>
+              </div>
               <em>{question.status}</em>
             </li>
           ))}

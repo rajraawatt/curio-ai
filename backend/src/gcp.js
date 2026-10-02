@@ -87,55 +87,84 @@ export async function geminiGenerate(prompt, { json = false } = {}) {
   return text;
 }
 
+function extractInlineImage(data) {
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  for (const part of parts) {
+    const inline = part.inlineData || part.inline_data;
+    if (inline?.data) {
+      return {
+        mime: inline.mimeType || inline.mime_type || "image/png",
+        data: inline.data,
+      };
+    }
+  }
+  return null;
+}
+
 export async function generateDiagram(prompt) {
   if (!projectId() && !apiKey()) {
     throw new Error("Image generation needs Vertex AI or a Gemini API key");
   }
   const model = process.env.IMAGEN_MODEL || "gemini-2.5-flash-image";
+  const text = `Generate one image. Educational classroom still, clear subject, clean studio lighting, no text, no watermark, no labels. ${prompt}`;
   const body = {
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            text: `Educational classroom diagram, clear, beautiful, no text watermark. ${prompt}`,
-          },
-        ],
-      },
-    ],
-    generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+    contents: [{ role: "user", parts: [{ text }] }],
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+      candidateCount: 1,
+    },
   };
 
-  let res;
-  if (projectId()) {
-    const url = `https://${location()}-aiplatform.googleapis.com/v1/projects/${projectId()}/locations/${location()}/publishers/google/models/${model}:generateContent`;
-    const token = await accessToken();
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-  } else {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey()}`;
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+  let lastError = "";
+  // Image models on Vertex often require the global endpoint.
+  const attempts = projectId()
+    ? [
+        { kind: "vertex", loc: "global" },
+        { kind: "vertex", loc: location() },
+      ]
+    : [{ kind: "apiKey" }];
+
+  for (const attempt of attempts) {
+    let res;
+    if (attempt.kind === "vertex") {
+      const host =
+        attempt.loc === "global"
+          ? "https://aiplatform.googleapis.com"
+          : `https://${attempt.loc}-aiplatform.googleapis.com`;
+      const url = `${host}/v1/projects/${projectId()}/locations/${attempt.loc}/publishers/google/models/${model}:generateContent`;
+      const token = await accessToken();
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } else {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey()}`;
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      lastError = data?.error?.message || `Image generation failed (${res.status}) @ ${attempt.loc || "apiKey"}`;
+      continue;
+    }
+
+    const image = extractInlineImage(data);
+    if (image) return `data:${image.mime};base64,${image.data}`;
+
+    const finish = data?.candidates?.[0]?.finishReason || data?.candidates?.[0]?.finish_reason;
+    const block = data?.promptFeedback?.blockReason || data?.promptFeedback?.block_reason;
+    lastError = `The image model returned no image${finish ? ` (finish=${finish})` : ""}${block ? ` (blocked=${block})` : ""} @ ${attempt.loc || "apiKey"}`;
   }
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data?.error?.message || `Image generation failed (${res.status})`);
-  }
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  const image = parts.find((p) => p.inlineData?.data);
-  if (!image) throw new Error("The image model returned no image");
-  const mime = image.inlineData.mimeType || "image/png";
-  return `data:${mime};base64,${image.inlineData.data}`;
+  throw new Error(lastError || "The image model returned no image");
 }
 
 const VOICE = {
@@ -209,25 +238,216 @@ export async function insertAnalytics(rows) {
   return { inserted: rows.length };
 }
 
-export async function startVeoClip(prompt) {
+export async function startVeoClip(prompt, options = {}) {
+  return startVeoGeneration({ prompt, ...options });
+}
+
+/**
+ * Start Veo text or image→video. Returns operation name string.
+ * Image: { imageBase64, mimeType } — uses the still as first frame.
+ */
+export async function startVeoGeneration({
+  prompt,
+  imageBase64 = null,
+  mimeType = "image/png",
+  durationSeconds = 8,
+  aspectRatio = "16:9",
+  storageUri = null,
+} = {}) {
   if (!projectId()) throw new Error("Veo needs GOOGLE_CLOUD_PROJECT and Application Default Credentials");
   const model = process.env.VEO_MODEL || "veo-3.1-fast-generate-001";
   const token = await accessToken();
   const url = `https://${location()}-aiplatform.googleapis.com/v1/projects/${projectId()}/locations/${location()}/publishers/google/models/${model}:predictLongRunning`;
+
+  const instance = { prompt: String(prompt || "").slice(0, 2000) };
+  if (imageBase64) {
+    instance.image = {
+      bytesBase64Encoded: imageBase64,
+      mimeType: mimeType || "image/png",
+    };
+  }
+
+  const parameters = {
+    aspectRatio,
+    durationSeconds: Number(durationSeconds) || 8,
+    sampleCount: 1,
+  };
+  const bucket = storageUri || (process.env.GCS_BUCKET ? `gs://${process.env.GCS_BUCKET.replace(/^gs:\/\//, "")}/curio-veo/` : null);
+  if (bucket) parameters.storageUri = bucket.endsWith("/") ? bucket : `${bucket}/`;
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      instances: [{ prompt }],
-      parameters: { aspectRatio: "16:9", durationSeconds: 6, sampleCount: 1 },
-    }),
+    body: JSON.stringify({ instances: [instance], parameters }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error?.message || `Veo request failed (${res.status})`);
-  return data.name || data;
+  const name = data.name;
+  if (!name) throw new Error("Veo did not return an operation name");
+  return name;
+}
+
+export async function fetchVeoOperation(operationName) {
+  if (!projectId()) throw new Error("Veo needs GOOGLE_CLOUD_PROJECT");
+  const model = process.env.VEO_MODEL || "veo-3.1-fast-generate-001";
+  const token = await accessToken();
+  const url = `https://${location()}-aiplatform.googleapis.com/v1/projects/${projectId()}/locations/${location()}/publishers/google/models/${model}:fetchPredictOperation`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ operationName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error?.message || `Veo poll failed (${res.status})`);
+  return data;
+}
+
+async function downloadGcsObject(gsUri, destPath) {
+  const m = String(gsUri).match(/^gs:\/\/([^/]+)\/(.+)$/);
+  if (!m) throw new Error(`Invalid GCS URI: ${gsUri}`);
+  const token = await accessToken();
+  const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(m[1])}/o/${encodeURIComponent(m[2])}?alt=media`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`GCS download failed (${res.status}) for ${gsUri}`);
+  const fs = await import("fs/promises");
+  await fs.writeFile(destPath, Buffer.from(await res.arrayBuffer()));
+  return destPath;
+}
+
+function extractVeoVideos(operation) {
+  const response = operation?.response || {};
+  const out = [];
+
+  const pushVideo = (v) => {
+    if (!v || typeof v !== "object") return;
+    if (v.bytesBase64Encoded || v.bytes_base64_encoded) {
+      out.push({
+        base64: v.bytesBase64Encoded || v.bytes_base64_encoded,
+        mime: v.mimeType || v.mime_type || "video/mp4",
+      });
+    }
+    if (v.gcsUri || v.gcs_uri || v.uri) {
+      out.push({ gcsUri: v.gcsUri || v.gcs_uri || v.uri });
+    }
+  };
+
+  const walk = (node, depth = 0) => {
+    if (!node || depth > 6) return;
+    if (Array.isArray(node)) {
+      node.forEach((n) => walk(n, depth + 1));
+      return;
+    }
+    if (typeof node !== "object") return;
+    // Direct video payload shapes from Veo
+    if (node.bytesBase64Encoded || node.bytes_base64_encoded || node.gcsUri || node.gcs_uri) {
+      pushVideo(node);
+    }
+    if (node.video) pushVideo(node.video);
+    if (node.videos) walk(node.videos, depth + 1);
+    if (node.generatedSamples) walk(node.generatedSamples, depth + 1);
+    if (node.generatedVideos) walk(node.generatedVideos, depth + 1);
+    if (node.predictions) walk(node.predictions, depth + 1);
+    if (node.generateVideoResponse) walk(node.generateVideoResponse, depth + 1);
+  };
+
+  walk(response);
+
+  // Prefer entries that look like full videos (gcs first, then largest base64)
+  out.sort((a, b) => {
+    if (a.gcsUri && !b.gcsUri) return -1;
+    if (!a.gcsUri && b.gcsUri) return 1;
+    return (b.base64?.length || 0) - (a.base64?.length || 0);
+  });
+
+  // Dedupe by gcsUri / base64 prefix
+  const seen = new Set();
+  return out.filter((v) => {
+    const key = v.gcsUri || v.base64?.slice(0, 64);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Poll Veo until done, then write the first MP4 to destPath.
+ */
+export async function waitForVeoAndSave(operationName, destPath, { intervalMs = 8000, timeoutMs = 10 * 60 * 1000 } = {}) {
+  const started = Date.now();
+  let operation;
+  while (Date.now() - started < timeoutMs) {
+    operation = await fetchVeoOperation(operationName);
+    if (operation.done) break;
+    if (operation.error) throw new Error(operation.error.message || JSON.stringify(operation.error));
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  if (!operation?.done) throw new Error(`Veo timed out after ${timeoutMs}ms`);
+  if (operation.error) throw new Error(operation.error.message || JSON.stringify(operation.error));
+
+  const videos = extractVeoVideos(operation);
+  if (!videos.length) {
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    try {
+      await fs.writeFile(
+        path.join(path.dirname(destPath), "veo-debug.json"),
+        JSON.stringify(
+          {
+            keys: Object.keys(operation.response || {}),
+            responsePreview: JSON.stringify(operation.response || {}).slice(0, 4000),
+          },
+          null,
+          2
+        )
+      );
+    } catch {
+      // ignore debug write failures
+    }
+    throw new Error(
+      `Veo finished but no video payload found. Set GCS_BUCKET in .env if inline bytes are empty. Raw keys: ${Object.keys(operation.response || {}).join(",")}`
+    );
+  }
+
+  const fs = await import("fs/promises");
+  const path = await import("path");
+  await fs.mkdir(path.dirname(destPath), { recursive: true });
+
+  // Prefer GCS URI when present (more reliable than inline bytes).
+  const first = videos.find((v) => v.gcsUri) || videos[0];
+  if (first.gcsUri) {
+    await downloadGcsObject(first.gcsUri, destPath);
+  } else if (first.base64) {
+    await fs.writeFile(destPath, Buffer.from(first.base64, "base64"));
+  } else {
+    throw new Error("Veo video entry had neither base64 nor gcsUri");
+  }
+
+  return { destPath, operationName, gcsUri: first.gcsUri || null };
+}
+
+/**
+ * Image→video convenience: still bytes + prompt → local mp4.
+ */
+export async function generateVeoClipFromImage({
+  prompt,
+  imageBase64,
+  mimeType = "image/png",
+  destPath,
+  durationSeconds = 8,
+}) {
+  const operationName = await startVeoGeneration({
+    prompt,
+    imageBase64,
+    mimeType,
+    durationSeconds,
+  });
+  return waitForVeoAndSave(operationName, destPath);
 }
 
 export function healthInfo(extra = {}) {
@@ -243,6 +463,7 @@ export function healthInfo(extra = {}) {
     bigquery: Boolean(projectId() && process.env.BIGQUERY_DATASET),
     translate: process.env.TRANSLATE_ENABLED === "true",
     bucket: process.env.GCS_BUCKET || null,
+    tripo: Boolean(process.env.TRIPO_API_KEY) && process.env.TRIPO_ENABLED !== "false",
     ...extra,
   };
 }

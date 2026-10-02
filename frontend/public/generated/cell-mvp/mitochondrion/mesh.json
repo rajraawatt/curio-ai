@@ -1,0 +1,8 @@
+{
+  "generator": "mock-triposr",
+  "status": "mock",
+  "note": "Replace with TripoSR GLB when GPU worker is connected",
+  "color": "#FFA500",
+  "type": "capsule",
+  "radius": 0.5
+}
