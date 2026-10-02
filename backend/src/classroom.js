@@ -1,9 +1,138 @@
+import { buildAnalyticsDigest } from "./analyticsDigest.js";
 import { LESSON, matchPlan, fallbackPlan, planningHold, normalizePlan, textOf } from "./lesson.js";
 import { engineMode, geminiGenerate, insertAnalytics } from "./gcp.js";
 
 const listeners = new Set();
 let seq = 10;
 const returnTimers = new Set();
+const studentPresence = new Map();
+const ROSTER_SIZE = Number(process.env.CLASS_ROSTER_SIZE) || 24;
+const DEFAULT_PACK_ID = process.env.PREPARE_PACK_ID || "cell-mvp";
+
+function touchStudent(name) {
+  const student = String(name || "").trim();
+  if (!student) return;
+  studentPresence.set(student, Date.now());
+}
+
+function activeStudentNames() {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  const names = [];
+  for (const [name, ts] of studentPresence) {
+    if (ts >= cutoff) names.push(name);
+  }
+  return names;
+}
+
+function seedSelfPacedEvents(baseTime) {
+  const topic = "extinction of dinosour";
+  const merged = {
+    id: "lesson-merged",
+    label: `${topic} — full merged lesson (~16s)`,
+    fileHint: "lesson-merged.mp4",
+  };
+  const students = ["Aarav", "Anaya", "Rohan", "Priya", "Dev", "Maya"];
+  const rows = [];
+  let n = 0;
+  for (const student of students) {
+    rows.push({
+      insert_id: `seed_sp_time_${n++}`,
+      event_time: new Date(baseTime - 3600000).toISOString(),
+      event_type: "time_spent",
+      student_name: student,
+      mode: "self_paced",
+      value_num: 120 + Math.floor(Math.random() * 480),
+      language: "en",
+      source: "session",
+      item_id: merged.id,
+      item_label: merged.label,
+      concept: merged.fileHint,
+      pack_id: DEFAULT_PACK_ID,
+    });
+  }
+  for (let c = 0; c < 8; c += 1) {
+    rows.push({
+      insert_id: `seed_sp_click_${n++}`,
+      event_time: new Date(baseTime - 120000 - c * 8000).toISOString(),
+      event_type: "content_click",
+      student_name: students[c % students.length],
+      item_id: merged.id,
+      item_label: merged.label,
+      concept: merged.fileHint,
+      mode: "self_paced",
+      value_num: 1,
+      language: "en",
+      source: "prepare",
+      pack_id: DEFAULT_PACK_ID,
+    });
+  }
+  rows.push(
+    {
+      insert_id: `seed_sp_rw_${n++}`,
+      event_time: new Date(baseTime - 900000).toISOString(),
+      event_type: "rewind",
+      student_name: "Aarav",
+      item_id: merged.id,
+      item_label: merged.label,
+      concept: merged.fileHint,
+      mode: "self_paced",
+      value_num: 12,
+      language: "en",
+      source: "player",
+      pack_id: DEFAULT_PACK_ID,
+    },
+    {
+      insert_id: `seed_sp_rw_${n++}`,
+      event_time: new Date(baseTime - 720000).toISOString(),
+      event_type: "rewind",
+      student_name: "Anaya",
+      item_id: merged.id,
+      item_label: merged.label,
+      concept: merged.fileHint,
+      mode: "self_paced",
+      value_num: 6,
+      language: "en",
+      source: "player",
+      pack_id: DEFAULT_PACK_ID,
+    }
+  );
+  return rows;
+}
+
+function seedVideoLanguagePlays(baseTime) {
+  const topic = "extinction of dinosour";
+  const video = {
+    id: "lesson-merged",
+    label: `${topic} — full merged lesson (~16s)`,
+    fileHint: "lesson-merged.mp4",
+  };
+  const langs = [
+    ["en", 14],
+    ["hi", 9],
+    ["es", 6],
+  ];
+  const rows = [];
+  let n = 0;
+  for (const [lang, count] of langs) {
+    for (let i = 0; i < count; i += 1) {
+      rows.push({
+        insert_id: `seed_vp_${n++}`,
+        event_time: new Date(baseTime - (n % 40) * 90000).toISOString(),
+        event_type: "video_play",
+        student_name: i % 3 === 0 ? "Teacher desk" : ["Aarav", "Anaya", "Rohan", "Priya"][i % 4],
+        item_id: video.id,
+        item_label: video.label,
+        concept: video.fileHint,
+        mode: i % 5 === 0 ? "live" : "self_paced",
+        language: lang,
+        value_num: 1,
+        source: "player",
+        pack_id: DEFAULT_PACK_ID,
+      });
+    }
+  }
+  return rows;
+}
 
 const SEED = [
   { name: "Aarav", text: "What is this rock made of?", source: "voice", color: "#7c5cff", concept: "Minerals" },
@@ -29,21 +158,39 @@ function blank() {
     diagram: null,
     veo: null,
     notice: null,
-    analytics: SEED.map((q, i) => ({
-      insert_id: `seed_${i}`,
-      event_time: new Date(Date.now() - (SEED.length - i) * 60000).toISOString(),
-      event_type: "question",
-      student_name: q.name,
-      question: q.text,
-      concept: q.concept,
-      language: "en",
-      source: q.source,
-    })),
+    analytics: [
+      ...SEED.map((q, i) => ({
+        insert_id: `seed_${i}`,
+        event_time: new Date(Date.now() - (SEED.length - i) * 60000).toISOString(),
+        event_type: "question",
+        student_name: q.name,
+        question: q.text,
+        concept: q.concept,
+        language: "en",
+        source: q.source,
+        mode: "live",
+      })),
+      ...SEED.map((q, i) => ({
+        insert_id: `seed_resp_${i}`,
+        event_time: new Date(Date.now() - (SEED.length - i) * 60000 + 45000).toISOString(),
+        event_type: "teacher_response",
+        student_name: q.name,
+        question: q.text,
+        concept: q.concept,
+        language: "en",
+        source: "teacher",
+        mode: "live",
+        value_num: 38 + i * 14,
+      })),
+      ...seedSelfPacedEvents(Date.now()),
+      ...seedVideoLanguagePlays(Date.now()),
+    ],
     bigquery: { status: "idle", error: null },
   };
 }
 
 let state = blank();
+for (const name of ["Aarav", "Anaya", "Rohan", "Priya", "Dev", "Maya"]) touchStudent(name);
 
 function clearReturns() {
   for (const timer of returnTimers) clearTimeout(timer);
@@ -82,7 +229,13 @@ export function publicState() {
       : null,
     veo: state.veo,
     notice: state.notice,
-    analytics: state.analytics.slice(-40),
+    analytics: state.analytics.slice(-80),
+    analyticsDigest: buildAnalyticsDigest({
+      events: state.analytics,
+      rosterSize: ROSTER_SIZE,
+      activeStudentNames: activeStudentNames(),
+    }),
+    rosterSize: ROSTER_SIZE,
     bigquery: state.bigquery,
     engine: engineMode(),
     room: "CURIO",
@@ -90,15 +243,21 @@ export function publicState() {
 }
 
 function log(eventType, extra = {}) {
+  if (extra.student_name) touchStudent(extra.student_name);
   const row = {
-    insert_id: `curio_${Date.now()}_${seq}`,
+    insert_id: `curio_${Date.now()}_${seq++}`,
     event_time: new Date().toISOString(),
     event_type: eventType,
     student_name: extra.student_name || "",
     question: extra.question || "",
     concept: extra.concept || "",
-    language: state.language,
+    language: extra.language || state.language,
     source: extra.source || "",
+    mode: extra.mode || "live",
+    item_id: extra.item_id || "",
+    item_label: extra.item_label || "",
+    value_num: Number.isFinite(extra.value_num) ? extra.value_num : null,
+    pack_id: extra.pack_id || DEFAULT_PACK_ID,
   };
   state.analytics.push(row);
   if (state.analytics.length > 200) state.analytics.splice(0, state.analytics.length - 200);
@@ -112,9 +271,49 @@ function log(eventType, extra = {}) {
     });
 }
 
+export function trackEvent(body = {}) {
+  const eventType = String(body.event_type || body.type || "").trim();
+  if (!eventType) {
+    const error = new Error("event_type is required");
+    error.status = 400;
+    throw error;
+  }
+  const student = String(body.name || body.student_name || "Student").trim().slice(0, 40) || "Student";
+  touchStudent(student);
+  log(eventType, {
+    student_name: student,
+    item_id: body.item_id,
+    item_label: body.item_label,
+    value_num: body.value_num ?? body.value,
+    mode: body.mode || "self_paced",
+    source: body.source || "client",
+    concept: body.concept || body.fileHint || "",
+    question: body.question || "",
+    language: body.language,
+    pack_id: body.pack_id,
+  });
+  broadcast();
+  return publicState();
+}
+
+function logTeacherResponse(question) {
+  if (!question?.ts || question.respondedAt) return;
+  question.respondedAt = Date.now();
+  const sec = Math.round(((question.respondedAt - question.ts) / 1000) * 10) / 10;
+  log("teacher_response", {
+    student_name: question.name,
+    question: question.text,
+    concept: question.concept,
+    source: "teacher",
+    mode: "live",
+    value_num: sec,
+  });
+}
+
 export function addQuestion({ name, text, source, region }) {
   const clean = String(text || "").trim().slice(0, 280);
   const student = String(name || "Student").trim().slice(0, 40) || "Student";
+  touchStudent(student);
   if (!clean) {
     const error = new Error("Question is empty");
     error.status = 400;
@@ -215,6 +414,7 @@ async function explore(questionId) {
   if (!question) return;
   state.selectedId = question.id;
   question.status = "selected";
+  logTeacherResponse(question);
   const script = matchPlan(question.text);
   if (script) {
     applyPlan(question, script, "script");
@@ -290,6 +490,7 @@ export async function control(action, payload = {}) {
       question.status = "selected";
       state.diagram = null;
       log("select", { student_name: question.name, question: question.text, concept: question.concept });
+      logTeacherResponse(question);
       break;
     }
     case "explore": {

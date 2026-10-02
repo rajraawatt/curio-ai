@@ -50,7 +50,9 @@ export function Teacher() {
   const exploreId = selected?.id || state.questions.find((q) => q.status === "new")?.id;
 
   return (
-    <main className={`teacher ${projecting ? "projecting" : ""} ${sideCollapsed ? "side-is-collapsed" : ""}`}>
+    <main
+      className={`teacher ${projecting ? "projecting" : ""} ${nav === "analytics" ? "analytics-focus" : ""} ${sideCollapsed ? "side-is-collapsed" : ""}`}
+    >
       <SidePanel
         nav={nav}
         onNav={setNav}
@@ -118,7 +120,9 @@ export function Teacher() {
           </div>
         )}
 
-        {nav === "analytics" && <AnalyticsPanel state={state} />}
+        {nav === "analytics" && (
+          <AnalyticsPanel state={state} connected={connected} onExit={() => setNav("classroom")} />
+        )}
         {nav === "settings" && <VideoSettings state={state} health={health} act={act} send={send} />}
       </section>
     </main>

@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { trackAnalytics } from "./analyticsClient.js";
 import { RegionMarker } from "./components/RegionMarker.jsx";
 import { useClassroom } from "./useClassroom.js";
 import { Wordmark } from "./Lobby.jsx";
@@ -13,6 +14,23 @@ export function Student() {
   const [panel, setPanel] = useState("ask");
   const [selection, setSelection] = useState(null);
   const [error, setError] = useState("");
+  const studentName = name.trim() || "Student";
+  useEffect(() => {
+    trackAnalytics({ event_type: "session_start", name: studentName, mode: "self_paced", source: "student" });
+    const timer = setInterval(() => {
+      trackAnalytics({
+        event_type: "time_spent",
+        name: studentName,
+        item_id: "lesson-merged",
+        item_label: "Merged lesson (student session)",
+        value_num: 60,
+        mode: "self_paced",
+        source: "heartbeat",
+        pack_id: "cell-mvp",
+      });
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [studentName]);
 
   async function ask(value, source = "text") {
     const question = (value || text).trim();

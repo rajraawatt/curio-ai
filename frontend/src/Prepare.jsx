@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AssetViewer, StillViewer } from "./components/AssetViewer.jsx";
+import { clipAnalyticsMeta } from "./clipAnalyticsMeta.js";
 import { LessonClipPlayer as ClipPlayer } from "./components/LessonClipPlayer.jsx";
 import { Wordmark } from "./Lobby.jsx";
 
@@ -257,15 +258,22 @@ export function Prepare() {
             <div className="prepare-video-row single">
               <ClipPlayer
                 key={pack.mergedVideo.url}
-                clip={pack.mergedVideo}
+                clip={clipAnalyticsMeta(pack.mergedVideo, pack)}
                 lang={language}
                 ageGroup={ageGroup}
+                trackAs="Prepare"
               />
             </div>
           ) : (
             <div className="prepare-video-row">
               {pack.videos.map((clip) => (
-                <ClipPlayer key={`${clip.id}-${clip.url}`} clip={clip} lang={language} ageGroup={ageGroup} />
+                <ClipPlayer
+                  key={`${clip.id}-${clip.url}`}
+                  clip={clipAnalyticsMeta(clip, pack)}
+                  lang={language}
+                  ageGroup={ageGroup}
+                  trackAs="Prepare"
+                />
               ))}
             </div>
           )}
