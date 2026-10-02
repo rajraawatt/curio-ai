@@ -15,7 +15,7 @@ function Lang({ state, act }) {
   );
 }
 
-export function Toolbar({ state, act, audioOn, captions, projecting, onAudio, onCaptions, onProject }) {
+export function Toolbar({ state, act, captions, projecting, onCaptions, onProject }) {
   return (
     <div className="transport">
       {state.phase === "transforming" ? (
@@ -44,9 +44,6 @@ export function Toolbar({ state, act, audioOn, captions, projecting, onAudio, on
           {state.playing ? "Pause" : "Resume"}
         </button>
       )}
-      <button type="button" className={audioOn ? "on" : ""} onClick={onAudio}>
-        Audio
-      </button>
       <button type="button" className={captions ? "on" : ""} onClick={onCaptions}>
         Captions
       </button>

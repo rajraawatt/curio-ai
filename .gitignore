@@ -5,3 +5,15 @@ frontend/dist
 .DS_Store
 *.log
 data
+tools/
+
+# Local TripoSR clone + Python env — never commit
+TripoSR/
+.venv/
+**/__pycache__/
+*.pyc
+
+# Generated packs: ignore by default; keep the frozen cell-mvp mock pack
+frontend/public/generated/*
+!frontend/public/generated/cell-mvp/
+!frontend/public/generated/cell-mvp/**

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-label="Mountain lesson still">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7eb6ee"/>
+      <stop offset="45%" stop-color="#d5ecff"/>
+      <stop offset="78%" stop-color="#ffe0b8"/>
+      <stop offset="100%" stop-color="#f3c98a"/>
+    </linearGradient>
+    <linearGradient id="rock" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b7355"/>
+      <stop offset="45%" stop-color="#6b5344"/>
+      <stop offset="100%" stop-color="#4a3b32"/>
+    </linearGradient>
+    <linearGradient id="peak" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f4ef"/>
+      <stop offset="35%" stop-color="#c9b8a6"/>
+      <stop offset="100%" stop-color="#7a6a58"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#sky)"/>
+  <circle cx="980" cy="140" r="56" fill="#fff4d2" opacity="0.95"/>
+  <ellipse cx="220" cy="160" rx="90" ry="28" fill="#fff" opacity="0.75"/>
+  <ellipse cx="280" cy="160" rx="50" ry="22" fill="#fff" opacity="0.7"/>
+  <ellipse cx="560" cy="120" rx="110" ry="30" fill="#fff" opacity="0.65"/>
+  <path d="M0 420 L220 220 L380 360 L520 180 L740 340 L900 210 L1100 360 L1280 280 L1280 720 L0 720 Z" fill="url(#peak)"/>
+  <path d="M0 520 L180 390 L340 500 L500 360 L680 510 L860 400 L1040 530 L1280 440 L1280 720 L0 720 Z" fill="#5c4a3d"/>
+  <ellipse cx="640" cy="560" rx="220" ry="120" fill="url(#rock)"/>
+  <path d="M480 520 L560 480 L620 540 L700 470 L780 530 L720 600 L560 610 Z" fill="#3f3229" opacity="0.55"/>
+  <path d="M560 540 L610 510 L650 560" fill="none" stroke="#d7c4a3" stroke-width="6" stroke-linecap="round"/>
+  <path d="M640 500 L690 470 L730 540" fill="none" stroke="#c4b49a" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="600" cy="570" r="10" fill="#c9a66b"/>
+  <circle cx="690" cy="555" r="8" fill="#a8b7c7"/>
+  <circle cx="650" cy="590" r="7" fill="#d9d0c3"/>
+  <rect x="40" y="40" width="280" height="54" rx="12" fill="rgba(32,33,36,0.55)"/>
+  <text x="60" y="74" fill="#fff" font-family="Arial, sans-serif" font-size="22" font-weight="700">How mountains form</text>
+</svg>

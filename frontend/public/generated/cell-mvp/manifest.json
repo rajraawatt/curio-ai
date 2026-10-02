@@ -1,0 +1,122 @@
+{
+  "packId": "cell-mvp",
+  "createdAt": "2026-10-02T14:00:32.867Z",
+  "status": "done",
+  "mode": "reused-manifest+reuse+tripo-image",
+  "engine": "vertex",
+  "teacherPrompt": "Create a short educational lesson about an animal cell.\nShow the nucleus as the control center and mitochondria producing energy.\nKeep it clear for middle-school students.",
+  "summary": "Create a short educational lesson about an animal cell.\nShow the nucleus as the control center and mitochondria producing energy.\nKeep it clear for middle-school students.",
+  "planSource": "reused-manifest",
+  "useVeo": false,
+  "useTripo": true,
+  "reuseExisting": true,
+  "beats": [
+    {
+      "id": "introduce_nucleus",
+      "title": "Cell's Control Center",
+      "narration": "The nucleus is like the cell's brain, controlling all its activities and holding its genetic information.",
+      "durationHintSec": 8,
+      "objectId": "nucleus",
+      "videoPrompt": "Slow camera pan around a detailed 3D rendering of an animal cell nucleus, highlighting its central position and intricate structure, clean studio background, no text."
+    },
+    {
+      "id": "mitochondria_energy",
+      "title": "Cell's Powerhouse",
+      "narration": "Mitochondria are the power plants of the cell, converting food into energy that the cell can use to function.",
+      "durationHintSec": 7,
+      "objectId": "mitochondria",
+      "videoPrompt": "Gentle camera rotation around a detailed 3D rendering of a single mitochondrion, emphasizing its unique internal structure, clean studio background, no text."
+    }
+  ],
+  "videos": [
+    {
+      "id": "introduce_nucleus",
+      "title": "Cell's Control Center",
+      "objectId": "nucleus",
+      "narration": "The nucleus is like the cell's brain, controlling all its activities and holding its genetic information.",
+      "durationSeconds": 8,
+      "url": "/generated/cell-mvp/video/clip-1-nucleus.mp4?t=1790948572553"
+    },
+    {
+      "id": "mitochondria_energy",
+      "title": "Cell's Powerhouse",
+      "objectId": "mitochondria",
+      "narration": "Mitochondria are the power plants of the cell, converting food into energy that the cell can use to function.",
+      "durationSeconds": 8,
+      "url": "/generated/cell-mvp/video/clip-2-mitochondria.mp4?t=1790948638711"
+    }
+  ],
+  "videoDurationSec": 16,
+  "pipeline": {
+    "step1": "Reused beats + objects from existing pack",
+    "step2": "Reused still for Nucleus",
+    "step3": "Reused still for Mitochondria",
+    "step4": "Reused 2 existing video clip(s)",
+    "step5": "Tripo failed for Nucleus: Tripo task e028182f-af70-4f8c-af38-817fc1e4143a timed out after 300000ms",
+    "step6": "Tripo failed for Mitochondria: Tripo download failed after 3 tries: ECONNRESET",
+    "stepRecover": "Downloaded Nucleus + Mitochondria Tripo GLBs"
+  },
+  "assets": [
+    {
+      "id": "nucleus",
+      "label": "Nucleus",
+      "reason": "To learn about the cell's control center.",
+      "color": "#4A90E2",
+      "imagePrompt": "Isolated 3D render of an animal cell nucleus, detailed, educational, clean white studio background, no text.. Single isolated educational object, centered, clean studio lighting, high detail, no text, no labels, no watermark",
+      "labels": [
+        {
+          "id": "nucleus_part",
+          "text": "Nucleus"
+        }
+      ],
+      "previewUrl": "/generated/cell-mvp/nucleus/source.png?t=1790949125666",
+      "sourceImageUrl": "/generated/cell-mvp/nucleus/source.png?t=1790949125666",
+      "meshUrl": "/generated/cell-mvp/nucleus/mesh.json",
+      "glbUrl": "/generated/cell-mvp/nucleus/model.glb?t=1790949719168",
+      "mesh": {
+        "generator": "gemini-still+tripo-image-to-model",
+        "status": "ready",
+        "taskId": "e028182f-af70-4f8c-af38-817fc1e4143a",
+        "credits": 40,
+        "pipeline": "recovered-download",
+        "color": "#4A90E2",
+        "glb": "model.glb",
+        "sourceImage": "source.png"
+      },
+      "tripoTaskId": "e028182f-af70-4f8c-af38-817fc1e4143a",
+      "credits": 40,
+      "pipeline": "recovered-download"
+    },
+    {
+      "id": "mitochondria",
+      "label": "Mitochondria",
+      "reason": "To understand how the cell gets its energy.",
+      "color": "#F5A623",
+      "imagePrompt": "Isolated 3D render of a single mitochondrion, showing its inner folds (cristae), educational, clean white studio background, no text.. Single isolated educational object, centered, clean studio lighting, high detail, no text, no labels, no watermark",
+      "labels": [
+        {
+          "id": "mitochondrion_part",
+          "text": "Mitochondrion"
+        }
+      ],
+      "previewUrl": "/generated/cell-mvp/mitochondria/source.png?t=1790949125668",
+      "sourceImageUrl": "/generated/cell-mvp/mitochondria/source.png?t=1790949125668",
+      "meshUrl": "/generated/cell-mvp/mitochondria/mesh.json",
+      "glbUrl": "/generated/cell-mvp/mitochondria/model.glb?t=1790949786572",
+      "mesh": {
+        "generator": "gemini-still+tripo-image-to-model",
+        "status": "ready",
+        "taskId": "fb5bc246-e287-4a2f-a861-48be91a2466b",
+        "credits": 40,
+        "pipeline": "recovered-download",
+        "color": "#F5A623",
+        "glb": "model.glb",
+        "sourceImage": "source.png"
+      },
+      "tripoTaskId": "fb5bc246-e287-4a2f-a861-48be91a2466b",
+      "credits": 40,
+      "pipeline": "recovered-download"
+    }
+  ],
+  "notice": "Both Tripo GLBs recovered and ready in Prepare"
+}

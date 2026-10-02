@@ -1,0 +1,10 @@
+{
+  "generator": "gemini-still+tripo-image-to-model",
+  "status": "ready",
+  "taskId": "fb5bc246-e287-4a2f-a861-48be91a2466b",
+  "credits": 40,
+  "pipeline": "recovered-download",
+  "color": "#F5A623",
+  "glb": "model.glb",
+  "sourceImage": "source.png"
+}

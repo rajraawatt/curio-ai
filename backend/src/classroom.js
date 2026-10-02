@@ -112,7 +112,7 @@ function log(eventType, extra = {}) {
     });
 }
 
-export function addQuestion({ name, text, source }) {
+export function addQuestion({ name, text, source, region }) {
   const clean = String(text || "").trim().slice(0, 280);
   const student = String(name || "Student").trim().slice(0, 40) || "Student";
   if (!clean) {
@@ -120,11 +120,15 @@ export function addQuestion({ name, text, source }) {
     error.status = 400;
     throw error;
   }
+
+  const safeRegion = normalizeRegion(region);
+
   const existing = state.questions.find((q) => q.text.toLowerCase() === clean.toLowerCase());
   if (existing) {
     existing.status = "new";
     existing.ts = Date.now();
     existing.source = source || existing.source;
+    if (safeRegion) existing.region = safeRegion;
     log("question_repeat", { student_name: student, question: clean, concept: existing.concept, source });
     broadcast();
     return existing;
@@ -139,6 +143,7 @@ export function addQuestion({ name, text, source }) {
     concept: plan?.concept || "Open curiosity",
     status: "new",
     ts: Date.now(),
+    region: safeRegion,
   };
   state.questions.unshift(question);
   if (state.questions.length > 40) state.questions.pop();
@@ -146,6 +151,28 @@ export function addQuestion({ name, text, source }) {
   log("question", { student_name: student, question: clean, concept: question.concept, source: question.source });
   broadcast();
   return question;
+}
+
+function normalizeRegion(region) {
+  if (!region || typeof region !== "object") return null;
+  const x = Number(region.x);
+  const y = Number(region.y);
+  const w = Number(region.w);
+  const h = Number(region.h);
+  if (![x, y, w, h].every((n) => Number.isFinite(n))) return null;
+  if (w <= 0 || h <= 0) return null;
+  const thumbnail = typeof region.thumbnail === "string" && region.thumbnail.startsWith("data:image/")
+    ? region.thumbnail.slice(0, 350000)
+    : null;
+  return {
+    x: Math.min(1, Math.max(0, x)),
+    y: Math.min(1, Math.max(0, y)),
+    w: Math.min(1, Math.max(0, w)),
+    h: Math.min(1, Math.max(0, h)),
+    label: String(region.label || "Marked region").slice(0, 80),
+    frame: String(region.frame || "").slice(0, 200),
+    thumbnail,
+  };
 }
 
 export function raiseHand(name, up = true) {
