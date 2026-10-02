@@ -1,122 +1,301 @@
 {
   "packId": "cell-mvp",
-  "createdAt": "2026-10-02T14:00:32.867Z",
+  "createdAt": "2026-10-02T16:14:03.598Z",
   "status": "done",
-  "mode": "reused-manifest+reuse+tripo-image",
+  "mode": "gemini+veo-image+tripo-image",
   "engine": "vertex",
-  "teacherPrompt": "Create a short educational lesson about an animal cell.\nShow the nucleus as the control center and mitochondria producing energy.\nKeep it clear for middle-school students.",
-  "summary": "Create a short educational lesson about an animal cell.\nShow the nucleus as the control center and mitochondria producing energy.\nKeep it clear for middle-school students.",
-  "planSource": "reused-manifest",
-  "useVeo": false,
+  "teacherPrompt": "Topic: extinction of dinosour\nStudent age group: 8-10\nKeywords: dinosour kingdom, exntinction, their food source, family\nNarration language: English. Also write narration in English, Hindi, and Spanish.\nTell one story that answers the topic across two 8-second scenes, played in order. Keywords are ingredients of that story, not separate unrelated objects. Scene 1 shows the world before. Scene 2 shows what caused the change and how it ended. Use simple words for the age group. HD video that feels immersive. Show this story moment happening, with a gentle camera move. No on-screen text, no labels, no watermark.",
+  "summary": "Topic: extinction of dinosour\nStudent age group: 8-10\nKeywords: dinosour kingdom, exntinction, their food source, family\nNarration language: English. Also write narration in English, Hindi, and Spanish.\nTell one story that answers the topic across two 8-second scenes, played in order. Keywords are ingredients of that story, not separate unrelated objects. Scene 1 shows the world before. Scene 2 shows what caused the change and how it ended. Use simple words for the age group. HD video that feels immersive. Show this story moment happening, with a gentle camera move. No on-screen text, no labels, no watermark.",
+  "topic": "extinction of dinosour",
+  "ageGroup": "8-10",
+  "keywords": [
+    "dinosour kingdom",
+    "exntinction",
+    "their food source",
+    "family"
+  ],
+  "language": "en",
+  "released": false,
+  "planSource": "gemini",
+  "useVeo": true,
   "useTripo": true,
-  "reuseExisting": true,
+  "reuseExisting": false,
   "beats": [
     {
-      "id": "introduce_nucleus",
-      "title": "Cell's Control Center",
-      "narration": "The nucleus is like the cell's brain, controlling all its activities and holding its genetic information.",
-      "durationHintSec": 8,
-      "objectId": "nucleus",
-      "videoPrompt": "Slow camera pan around a detailed 3D rendering of an animal cell nucleus, highlighting its central position and intricate structure, clean studio background, no text."
+      "id": "dinosaur_life",
+      "title": "Dinosaur Life",
+      "narration": {
+        "en": "Millions of years ago, dinosaur families lived happily in a world full of delicious plants.",
+        "hi": "करोड़ों साल पहले, डायनासोर परिवार स्वादिष्ट पौधों से भरी दुनिया में खुशी से रहते थे।",
+        "es": "Hace millones de años, las familias de dinosaurios vivían felices en un mundo lleno de plantas deliciosas."
+      },
+      "captions": [
+        {
+          "atSec": 0,
+          "text": {
+            "en": "Long ago, dinosaur families lived together in one kingdom.",
+            "hi": "बहुत पहले डायनासोर परिवार एक साथ अपने राज्य में रहते थे।",
+            "es": "Hace mucho tiempo, las familias de dinosaurios vivían juntas en un reino."
+          }
+        },
+        {
+          "atSec": 3,
+          "text": {
+            "en": "They ate plants. That food kept the families alive.",
+            "hi": "वे पौधे खाते थे। यही खाना परिवारों को जीवित रखता था।",
+            "es": "Comían plantas. Esa comida mantenía vivas a las familias."
+          }
+        },
+        {
+          "atSec": 6,
+          "text": {
+            "en": "This was their world before anything went wrong.",
+            "hi": "कुछ गलत होने से पहले उनकी दुनिया ऐसी थी।",
+            "es": "Así era su mundo antes de que algo saliera mal."
+          }
+        }
+      ],
+      "durationHintSec": 7,
+      "objectId": "dinosaur_kingdom",
+      "videoPrompt": "A gentle camera pans across a vibrant, lush prehistoric landscape, showing various dinosaur families (herbivores) peacefully eating and interacting, with a focus on their food source, showing a thriving ecosystem, no on-screen text."
     },
     {
-      "id": "mitochondria_energy",
-      "title": "Cell's Powerhouse",
-      "narration": "Mitochondria are the power plants of the cell, converting food into energy that the cell can use to function.",
-      "durationHintSec": 7,
-      "objectId": "mitochondria",
-      "videoPrompt": "Gentle camera rotation around a detailed 3D rendering of a single mitochondrion, emphasizing its unique internal structure, clean studio background, no text."
+      "id": "extinction_event",
+      "title": "The Great Change",
+      "narration": {
+        "en": "Suddenly, a giant space rock crashed into Earth, changing everything and making their world disappear.",
+        "hi": "अचानक, एक विशाल अंतरिक्ष चट्टान पृथ्वी से टकराई, सब कुछ बदल गया और उनकी दुनिया गायब हो गई।",
+        "es": "De repente, una roca espacial gigante chocó contra la Tierra, cambiando todo y haciendo desaparecer su mundo."
+      },
+      "captions": [
+        {
+          "atSec": 0,
+          "text": {
+            "en": "A giant rock from space hit the Earth.",
+            "hi": "अंतरिक्ष से एक विशाल चट्टान पृथ्वी से टकराई।",
+            "es": "Una roca gigante del espacio chocó contra la Tierra."
+          }
+        },
+        {
+          "atSec": 3,
+          "text": {
+            "en": "Dust filled the sky, so the sun could not reach the plants.",
+            "hi": "धूल से आसमान भर गया, इसलिए धूप पौधों तक नहीं पहुँची।",
+            "es": "El polvo llenó el cielo y el sol no llegó a las plantas."
+          }
+        },
+        {
+          "atSec": 6,
+          "text": {
+            "en": "The plants died, the food was gone, and the kingdom ended.",
+            "hi": "पौधे मर गए, खाना खत्म हो गया, और राज्य समाप्त हो गया।",
+            "es": "Las plantas murieron, se acabó la comida y el reino terminó."
+          }
+        }
+      ],
+      "durationHintSec": 8,
+      "objectId": "asteroid_impact",
+      "videoPrompt": "A dramatic shot of a massive asteroid streaking across the sky and impacting the Earth, followed by a quick visual of dust clouds rising and the landscape changing, showing the sudden end of the dinosaur kingdom, with a gentle camera move, no on-screen text."
     }
   ],
   "videos": [
     {
-      "id": "introduce_nucleus",
-      "title": "Cell's Control Center",
-      "objectId": "nucleus",
-      "narration": "The nucleus is like the cell's brain, controlling all its activities and holding its genetic information.",
+      "id": "dinosaur_life",
+      "title": "Dinosaur Life",
+      "objectId": "dinosaur_kingdom",
+      "narration": {
+        "en": "Millions of years ago, dinosaur families lived happily in a world full of delicious plants.",
+        "hi": "करोड़ों साल पहले, डायनासोर परिवार स्वादिष्ट पौधों से भरी दुनिया में खुशी से रहते थे।",
+        "es": "Hace millones de años, las familias de dinosaurios vivían felices en un mundo lleno de plantas deliciosas."
+      },
+      "captions": [
+        {
+          "atSec": 0,
+          "text": {
+            "en": "Long ago, dinosaur families lived together in one kingdom.",
+            "hi": "बहुत पहले डायनासोर परिवार एक साथ अपने राज्य में रहते थे।",
+            "es": "Hace mucho tiempo, las familias de dinosaurios vivían juntas en un reino."
+          }
+        },
+        {
+          "atSec": 3,
+          "text": {
+            "en": "They ate plants. That food kept the families alive.",
+            "hi": "वे पौधे खाते थे। यही खाना परिवारों को जीवित रखता था।",
+            "es": "Comían plantas. Esa comida mantenía vivas a las familias."
+          }
+        },
+        {
+          "atSec": 6,
+          "text": {
+            "en": "This was their world before anything went wrong.",
+            "hi": "कुछ गलत होने से पहले उनकी दुनिया ऐसी थी।",
+            "es": "Así era su mundo antes de que algo saliera mal."
+          }
+        }
+      ],
       "durationSeconds": 8,
-      "url": "/generated/cell-mvp/video/clip-1-nucleus.mp4?t=1790948572553"
+      "url": "/generated/cell-mvp/video/clip-1-dinosaur_kingdom.mp4?t=1790957560233"
     },
     {
-      "id": "mitochondria_energy",
-      "title": "Cell's Powerhouse",
-      "objectId": "mitochondria",
-      "narration": "Mitochondria are the power plants of the cell, converting food into energy that the cell can use to function.",
+      "id": "extinction_event",
+      "title": "The Great Change",
+      "objectId": "asteroid_impact",
+      "narration": {
+        "en": "Suddenly, a giant space rock crashed into Earth, changing everything and making their world disappear.",
+        "hi": "अचानक, एक विशाल अंतरिक्ष चट्टान पृथ्वी से टकराई, सब कुछ बदल गया और उनकी दुनिया गायब हो गई।",
+        "es": "De repente, una roca espacial gigante chocó contra la Tierra, cambiando todo y haciendo desaparecer su mundo."
+      },
+      "captions": [
+        {
+          "atSec": 0,
+          "text": {
+            "en": "A giant rock from space hit the Earth.",
+            "hi": "अंतरिक्ष से एक विशाल चट्टान पृथ्वी से टकराई।",
+            "es": "Una roca gigante del espacio chocó contra la Tierra."
+          }
+        },
+        {
+          "atSec": 3,
+          "text": {
+            "en": "Dust filled the sky, so the sun could not reach the plants.",
+            "hi": "धूल से आसमान भर गया, इसलिए धूप पौधों तक नहीं पहुँची।",
+            "es": "El polvo llenó el cielo y el sol no llegó a las plantas."
+          }
+        },
+        {
+          "atSec": 6,
+          "text": {
+            "en": "The plants died, the food was gone, and the kingdom ended.",
+            "hi": "पौधे मर गए, खाना खत्म हो गया, और राज्य समाप्त हो गया।",
+            "es": "Las plantas murieron, se acabó la comida y el reino terminó."
+          }
+        }
+      ],
       "durationSeconds": 8,
-      "url": "/generated/cell-mvp/video/clip-2-mitochondria.mp4?t=1790948638711"
+      "url": "/generated/cell-mvp/video/clip-2-asteroid_impact.mp4?t=1790957630971"
     }
   ],
-  "videoDurationSec": 16,
+  "videoDurationSec": 15.35,
   "pipeline": {
-    "step1": "Reused beats + objects from existing pack",
-    "step2": "Reused still for Nucleus",
-    "step3": "Reused still for Mitochondria",
-    "step4": "Reused 2 existing video clip(s)",
-    "step5": "Tripo failed for Nucleus: Tripo task e028182f-af70-4f8c-af38-817fc1e4143a timed out after 300000ms",
-    "step6": "Tripo failed for Mitochondria: Tripo download failed after 3 tries: ECONNRESET",
-    "stepRecover": "Downloaded Nucleus + Mitochondria Tripo GLBs"
+    "step1": "Gemini planned beats + key objects",
+    "step2": "Still image saved for Dinosaur Kingdom",
+    "step3": "Still image saved for Giant Asteroid",
+    "step4": "Veo image→video clip for Dinosaur Life (8s)",
+    "step5": "Veo image→video clip for The Great Change (8s)",
+    "step6": "Tripo failed for Dinosaur Kingdom: Tripo /generation/image-to-model failed: You don't have enough credit to create this task",
+    "step7": "Tripo failed for Giant Asteroid: Tripo /generation/image-to-model failed: You don't have enough credit to create this task"
   },
   "assets": [
     {
-      "id": "nucleus",
-      "label": "Nucleus",
-      "reason": "To learn about the cell's control center.",
-      "color": "#4A90E2",
-      "imagePrompt": "Isolated 3D render of an animal cell nucleus, detailed, educational, clean white studio background, no text.. Single isolated educational object, centered, clean studio lighting, high detail, no text, no labels, no watermark",
+      "id": "dinosaur_kingdom",
+      "label": "Dinosaur Kingdom",
+      "reason": "See how dinosaurs lived in their world.",
+      "color": "#6B8E23",
+      "imagePrompt": "A happy family of long-necked dinosaurs (Brachiosaurus) and smaller plant-eating dinosaurs grazing peacefully in a lush, green prehistoric forest, with warm sunlight, educational, clean studio, no text.. One clear subject that can become a 3D model, detailed, no text, no labels, no watermark. Keep the place and moment of the story.",
       "labels": [
         {
-          "id": "nucleus_part",
-          "text": "Nucleus"
+          "id": "dinosaur_family",
+          "text": "Dinosaur Family"
+        },
+        {
+          "id": "food_source",
+          "text": "Food Source"
         }
       ],
-      "previewUrl": "/generated/cell-mvp/nucleus/source.png?t=1790949125666",
-      "sourceImageUrl": "/generated/cell-mvp/nucleus/source.png?t=1790949125666",
-      "meshUrl": "/generated/cell-mvp/nucleus/mesh.json",
-      "glbUrl": "/generated/cell-mvp/nucleus/model.glb?t=1790949719168",
+      "previewUrl": "/generated/cell-mvp/dinosaur_kingdom/source.png?t=1790957468882",
+      "sourceImageUrl": "/generated/cell-mvp/dinosaur_kingdom/source.png?t=1790957468882",
+      "meshUrl": "/generated/cell-mvp/dinosaur_kingdom/mesh.json",
+      "glbUrl": null,
       "mesh": {
-        "generator": "gemini-still+tripo-image-to-model",
-        "status": "ready",
-        "taskId": "e028182f-af70-4f8c-af38-817fc1e4143a",
-        "credits": 40,
-        "pipeline": "recovered-download",
-        "color": "#4A90E2",
-        "glb": "model.glb",
-        "sourceImage": "source.png"
+        "generator": "tripo-failed",
+        "status": "error",
+        "error": "Tripo /generation/image-to-model failed: You don't have enough credit to create this task",
+        "color": "#6B8E23",
+        "sourceImage": "source.png",
+        "type": "group_of_dinosaurs",
+        "radius": 1
       },
-      "tripoTaskId": "e028182f-af70-4f8c-af38-817fc1e4143a",
-      "credits": 40,
-      "pipeline": "recovered-download"
+      "error": "Tripo /generation/image-to-model failed: You don't have enough credit to create this task"
     },
     {
-      "id": "mitochondria",
-      "label": "Mitochondria",
-      "reason": "To understand how the cell gets its energy.",
-      "color": "#F5A623",
-      "imagePrompt": "Isolated 3D render of a single mitochondrion, showing its inner folds (cristae), educational, clean white studio background, no text.. Single isolated educational object, centered, clean studio lighting, high detail, no text, no labels, no watermark",
+      "id": "asteroid_impact",
+      "label": "Giant Asteroid",
+      "reason": "Discover what changed the dinosaur's world forever.",
+      "color": "#808080",
+      "imagePrompt": "A massive, fiery asteroid hurtling through Earth's atmosphere towards a prehistoric Earth, dramatic lighting, educational, clean studio, no text.. One clear subject that can become a 3D model, detailed, no text, no labels, no watermark. Keep the place and moment of the story.",
       "labels": [
         {
-          "id": "mitochondrion_part",
-          "text": "Mitochondrion"
+          "id": "asteroid",
+          "text": "Asteroid"
+        },
+        {
+          "id": "impact",
+          "text": "Impact"
         }
       ],
-      "previewUrl": "/generated/cell-mvp/mitochondria/source.png?t=1790949125668",
-      "sourceImageUrl": "/generated/cell-mvp/mitochondria/source.png?t=1790949125668",
-      "meshUrl": "/generated/cell-mvp/mitochondria/mesh.json",
-      "glbUrl": "/generated/cell-mvp/mitochondria/model.glb?t=1790949786572",
+      "previewUrl": "/generated/cell-mvp/asteroid_impact/source.png?t=1790957475701",
+      "sourceImageUrl": "/generated/cell-mvp/asteroid_impact/source.png?t=1790957475701",
+      "meshUrl": "/generated/cell-mvp/asteroid_impact/mesh.json",
+      "glbUrl": null,
       "mesh": {
-        "generator": "gemini-still+tripo-image-to-model",
-        "status": "ready",
-        "taskId": "fb5bc246-e287-4a2f-a861-48be91a2466b",
-        "credits": 40,
-        "pipeline": "recovered-download",
-        "color": "#F5A623",
-        "glb": "model.glb",
-        "sourceImage": "source.png"
+        "generator": "tripo-failed",
+        "status": "error",
+        "error": "Tripo /generation/image-to-model failed: You don't have enough credit to create this task",
+        "color": "#808080",
+        "sourceImage": "source.png",
+        "type": "sphere",
+        "radius": 1
       },
-      "tripoTaskId": "fb5bc246-e287-4a2f-a861-48be91a2466b",
-      "credits": 40,
-      "pipeline": "recovered-download"
+      "error": "Tripo /generation/image-to-model failed: You don't have enough credit to create this task"
     }
   ],
-  "notice": "Both Tripo GLBs recovered and ready in Prepare"
+  "notice": "Prepare pack complete",
+  "mergedVideo": {
+    "id": "lesson_merged",
+    "merged": true,
+    "mergeRevision": 2,
+    "title": "Lesson video",
+    "durationSeconds": 15.35,
+    "fadeSeconds": 0.65,
+    "captions": [
+      {
+        "atSec": 0,
+        "text": {
+          "en": "Long ago, dinosaur families lived together in one kingdom.",
+          "hi": "बहुत पहले डायनासोर परिवार एक साथ अपने राज्य में रहते थे।",
+          "es": "Hace mucho tiempo, las familias de dinosaurios vivían juntas en un reino."
+        }
+      },
+      {
+        "atSec": 4.2,
+        "text": {
+          "en": "This was their world before anything went wrong.",
+          "hi": "कुछ गलत होने से पहले उनकी दुनिया ऐसी थी।",
+          "es": "Así era su mundo antes de que algo saliera mal."
+        }
+      },
+      {
+        "atSec": 8,
+        "text": {
+          "en": "A giant rock from space hit the Earth.",
+          "hi": "अंतरिक्ष से एक विशाल चट्टान पृथ्वी से टकराई।",
+          "es": "Una roca gigante del espacio chocó contra la Tierra."
+        }
+      },
+      {
+        "atSec": 12.2,
+        "text": {
+          "en": "The plants died, the food was gone, and the kingdom ended.",
+          "hi": "पौधे मर गए, खाना खत्म हो गया, और राज्य समाप्त हो गया।",
+          "es": "Las plantas murieron, se acabó la comida y el reino terminó."
+        }
+      }
+    ],
+    "sourceClips": [
+      "/generated/cell-mvp/video/clip-1-dinosaur_kingdom.mp4?t=1790957560233",
+      "/generated/cell-mvp/video/clip-2-asteroid_impact.mp4?t=1790957630971"
+    ],
+    "url": "/generated/cell-mvp/video/lesson-merged.mp4?t=1790964353376"
+  }
 }

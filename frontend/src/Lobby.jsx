@@ -64,7 +64,7 @@ export function Lobby() {
           <a className="door prepare" href="/prepare">
             <span>Studio</span>
             <strong>Prepare assets</strong>
-            <em>Mock cell pack: summary → 3 detail 3D assets.</em>
+            <em>Topic, age, and language for the video you will show next class.</em>
           </a>
         </div>
       </section>

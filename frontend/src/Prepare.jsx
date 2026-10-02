@@ -1,10 +1,34 @@
 import { useEffect, useState } from "react";
 import { AssetViewer, StillViewer } from "./components/AssetViewer.jsx";
+import { LessonClipPlayer as ClipPlayer } from "./components/LessonClipPlayer.jsx";
 import { Wordmark } from "./Lobby.jsx";
 
-const DEFAULT_PROMPT = `Create a short educational lesson about an animal cell.
-Show the nucleus as the control center and mitochondria producing energy.
-Keep it clear for middle-school students.`;
+const AGES = [
+  ["8-10", "Ages 8–10"],
+  ["11-14", "Ages 11–14"],
+  ["15-18", "Ages 15–18"],
+];
+
+const LANGS = [
+  ["en", "English"],
+  ["hi", "Hindi"],
+  ["es", "Spanish"],
+];
+
+function packProgress(pack) {
+  if (!pack) return 0;
+  if (pack.status === "done") return 100;
+  const clips = pack.useVeo === false ? 0 : 2;
+  const models = pack.useTripo === false ? 0 : 2;
+  const merge = pack.useVeo === false ? 0 : 1;
+  const expected = 1 + 2 + clips + merge + models;
+  const doneSteps = Object.keys(pack.pipeline || {}).length;
+  let pct = Math.round((doneSteps / expected) * 100);
+  if (["starting", "planned", "image", "veo", "tripo"].includes(pack.status)) {
+    pct = Math.min(96, pct + 8);
+  }
+  return Math.max(6, Math.min(99, pct));
+}
 
 async function readPrepareStream(res, onEvent) {
   const reader = res.body.getReader();
@@ -39,17 +63,26 @@ export function Prepare() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
-  const [useGemini, setUseGemini] = useState(false);
-  const [useVeo, setUseVeo] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [topic, setTopic] = useState("");
+  const [ageGroup, setAgeGroup] = useState("11-14");
+  const [keywords, setKeywords] = useState("");
+  const [language, setLanguage] = useState("en");
+  const [useGemini, setUseGemini] = useState(true);
+  const [useVeo, setUseVeo] = useState(true);
   const [useTripo, setUseTripo] = useState(true);
-  const [reuseExisting, setReuseExisting] = useState(true);
 
   async function loadPack() {
     const res = await fetch("/api/prepare/assets");
     const data = await res.json();
     setPack(data.pack || null);
-    if (data.pack?.teacherPrompt) setPrompt(data.pack.teacherPrompt);
+    if (!data.pack?.topic) return;
+    setTopic(data.pack.topic);
+    if (data.pack.ageGroup) setAgeGroup(data.pack.ageGroup);
+    if (data.pack.language) setLanguage(data.pack.language);
+    if (Array.isArray(data.pack.keywords) && data.pack.keywords.length) {
+      setKeywords(data.pack.keywords.join(", "));
+    }
   }
 
   useEffect(() => {
@@ -57,8 +90,13 @@ export function Prepare() {
   }, []);
 
   async function generate() {
+    if (!topic.trim()) {
+      setError("Add a topic for the next class.");
+      return;
+    }
     setBusy(true);
     setError("");
+    setProgress(6);
     setNotice("Starting…");
     try {
       const res = await fetch("/api/prepare/assets?stream=1", {
@@ -68,11 +106,14 @@ export function Prepare() {
           Accept: "text/event-stream",
         },
         body: JSON.stringify({
-          prompt,
+          topic: topic.trim(),
+          ageGroup,
+          keywords,
+          language,
           useGemini,
           useVeo,
           useTripo,
-          reuseExisting,
+          reuseExisting: false,
           objectCount: 2,
         }),
       });
@@ -82,16 +123,17 @@ export function Prepare() {
       }
 
       await readPrepareStream(res, (event, data) => {
-        if (event === "pack" || (event === "done" && data.pack)) {
-          setPack(data.pack || data);
-          if (data.notice || data.pack?.notice) setNotice(data.notice || data.pack.notice);
-        } else if (event === "status") {
-          setNotice(data.notice || "Working…");
-        } else if (event === "error") {
-          setError(data.error || "Prepare failed");
-        } else if (event === "done") {
+        const nextPack = event === "pack" ? data : data.pack;
+        if (nextPack && (event === "pack" || event === "done")) {
+          setPack(nextPack);
+          setProgress(packProgress(nextPack));
+        }
+        if (event === "error") setError(data.error || "Prepare failed");
+        else if (data.notice || nextPack?.notice) setNotice(data.notice || nextPack.notice);
+        else if (event === "status") setNotice(data.notice || "Working…");
+        if (event === "done") {
+          setProgress(100);
           setNotice(data.pack?.notice || "Done");
-          if (data.pack) setPack(data.pack);
         }
       });
     } catch (err) {
@@ -106,43 +148,76 @@ export function Prepare() {
       <header className="prepare-header">
         <Wordmark />
         <div>
-          <h1>Prepare lesson pack</h1>
-          <p>Prompt → Gemini plan → stills → Veo (~15s) → Tripo 3D (same images)</p>
+          <h1>Prepare assets</h1>
+          <p>One lesson video (~16s): two scenes merged with a smooth fade. Each scene keeps one subject for 3D.</p>
         </div>
         <a href="/">Back</a>
       </header>
 
       <section className="prepare-panel">
-        <h2>Teacher prompt</h2>
-        <textarea
-          className="prepare-prompt"
-          rows={5}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          disabled={busy}
-        />
-        <label className="prepare-toggle">
-          <input type="checkbox" checked={reuseExisting} onChange={(e) => setReuseExisting(e.target.checked)} disabled={busy} />
-          Reuse existing stills + video (skip regenerating them)
-        </label>
+        <h2>Lesson to prepare</h2>
+        <div className="prepare-fields">
+          <label className="prepare-field wide">
+            Topic
+            <input
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="How a volcano erupts"
+              disabled={busy}
+            />
+          </label>
+          <label className="prepare-field">
+            Student age group
+            <select value={ageGroup} onChange={(e) => setAgeGroup(e.target.value)} disabled={busy}>
+              {AGES.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="prepare-field">
+            Language
+            <select value={language} onChange={(e) => setLanguage(e.target.value)} disabled={busy}>
+              {LANGS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="prepare-field wide">
+            Keywords
+            <input
+              value={keywords}
+              onChange={(e) => setKeywords(e.target.value)}
+              placeholder="magma, crater, ash cloud"
+              disabled={busy}
+            />
+          </label>
+        </div>
         <label className="prepare-toggle">
           <input type="checkbox" checked={useGemini} onChange={(e) => setUseGemini(e.target.checked)} disabled={busy} />
-          Gemini plan (beats + key objects + labels)
+          Plan beats with Gemini
         </label>
         <label className="prepare-toggle">
           <input type="checkbox" checked={useVeo} onChange={(e) => setUseVeo(e.target.checked)} disabled={busy} />
-          Veo image→video (~2×8s clips from the stills)
+          Generate HD video from the stills
         </label>
         <label className="prepare-toggle">
           <input type="checkbox" checked={useTripo} onChange={(e) => setUseTripo(e.target.checked)} disabled={busy} />
-          Tripo image→3D from the stills (uses credits)
+          3D model of each fragment from the same still
         </label>
         <div className="prepare-actions">
           <button type="button" className="primary" disabled={busy} onClick={generate}>
-            {busy ? "Generating… results appear as each step finishes" : "Generate lesson pack"}
+            {busy ? "Generating…" : "Generate lesson pack"}
           </button>
           <span className="prepare-mode">{pack ? `Mode: ${pack.mode}` : "No pack yet"}</span>
         </div>
+        {busy && (
+          <div className="prepare-progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label="Generation progress">
+            <div className="prepare-progress-track">
+              <div className="prepare-progress-bar" style={{ width: `${progress}%` }} />
+            </div>
+            <span>{progress}%</span>
+          </div>
+        )}
         {notice && <p className="prepare-notice">{notice}</p>}
         {error && <p className="error">{error}</p>}
       </section>
@@ -164,37 +239,47 @@ export function Prepare() {
           <ol>
             {pack.beats.map((beat) => (
               <li key={beat.id}>
-                <strong>{beat.title}</strong> → {beat.objectId}: {beat.narration}
+                <strong>{beat.title}</strong> → {beat.objectId}:{" "}
+                {beat.narration && typeof beat.narration === "object" ? beat.narration.en : beat.narration}
               </li>
             ))}
           </ol>
         </section>
       )}
 
-      {pack?.videos?.length > 0 && (
+      {(pack?.mergedVideo?.url || pack?.videos?.length > 0) && (
         <section className="prepare-videos">
-          <h2>Video clips (~{pack.videoDurationSec || 16}s total)</h2>
-          <div className="prepare-video-row">
-            {pack.videos.map((clip) => (
-              <figure key={`${clip.id}-${clip.url}`} className="prepare-video-card">
-                <video
-                  key={clip.url}
-                  src={clip.url.split("?")[0]}
-                  controls
-                  playsInline
-                  preload="metadata"
-                >
-                  <source src={clip.url.split("?")[0]} type="video/mp4" />
-                </video>
-                <figcaption>
-                  {clip.title} ({clip.durationSeconds}s) ·{" "}
-                  <a href={clip.url.split("?")[0]} target="_blank" rel="noreferrer">
-                    open file
-                  </a>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
+          <h2>Lesson video (~{Math.round(pack.videoDurationSec || 16)}s)</h2>
+          <p className="prepare-caption-note">
+            One merged clip (max 16s). Picture, Veo sound, captions, and the woman’s voice stay in sync.
+          </p>
+          {pack.mergedVideo?.url ? (
+            <div className="prepare-video-row single">
+              <ClipPlayer
+                key={pack.mergedVideo.url}
+                clip={pack.mergedVideo}
+                lang={language}
+                ageGroup={ageGroup}
+              />
+            </div>
+          ) : (
+            <div className="prepare-video-row">
+              {pack.videos.map((clip) => (
+                <ClipPlayer key={`${clip.id}-${clip.url}`} clip={clip} lang={language} ageGroup={ageGroup} />
+              ))}
+            </div>
+          )}
+          {pack.mergeError && <p className="error">Merge failed: {pack.mergeError}. Showing separate clips.</p>}
+          {pack.mergedVideo?.sourceClips?.length > 0 && (
+            <p className="prepare-source-clips">
+              Source:{" "}
+              {pack.mergedVideo.sourceClips.map((url, i) => (
+                <a key={url} href={url.split("?")[0]}>
+                  clip {i + 1}
+                </a>
+              ))}
+            </p>
+          )}
         </section>
       )}
 
@@ -212,12 +297,14 @@ export function Prepare() {
                 <p>{asset.reason}</p>
                 <p className="prepare-status">
                   {asset.glbUrl && stillUrl
-                    ? "Still + 3D ready (Gemini + Tripo)"
+                    ? "Still + 3D ready. Drag the model to turn it."
                     : asset.glbUrl
-                      ? "3D ready (Tripo)"
-                      : stillUrl
-                        ? "Still ready (Gemini) — 3D pending / not run yet"
-                        : "Waiting…"}
+                      ? "3D ready. Drag the model to turn it."
+                      : asset.mesh?.status === "error" || asset.error
+                        ? "Still ready. 3D was not created because Tripo has no credit left."
+                        : stillUrl
+                          ? "Still ready. 3D has not been made yet."
+                          : "Waiting…"}
                 </p>
                 {asset.labels?.length > 0 && (
                   <ul className="prepare-labels">

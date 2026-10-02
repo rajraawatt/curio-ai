@@ -1,6 +1,26 @@
+import { execFile } from "child_process";
+import { existsSync } from "fs";
+import { homedir } from "os";
+import path from "path";
+import { promisify } from "util";
 import { GoogleAuth } from "google-auth-library";
 
+const execFileAsync = promisify(execFile);
 let auth;
+let cachedCliToken = "";
+let cachedCliTokenAt = 0;
+const CLI_TOKEN_TTL_MS = 45 * 60 * 1000;
+
+function adcFile() {
+  return process.env.GOOGLE_APPLICATION_CREDENTIALS
+    || path.join(homedir(), ".config/gcloud/application_default_credentials.json");
+}
+
+export function authSource() {
+  if (process.env.K_SERVICE) return "cloud-run";
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS || existsSync(adcFile())) return "adc";
+  return "gcloud-user";
+}
 
 export function projectId() {
   return process.env.GOOGLE_CLOUD_PROJECT || "";
@@ -24,18 +44,44 @@ export function engineMode() {
   return "lesson-scripts";
 }
 
-async function accessToken() {
-  if (!auth) {
-    auth = new GoogleAuth({
-      scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+async function gcloudAccessToken() {
+  if (cachedCliToken && Date.now() - cachedCliTokenAt < CLI_TOKEN_TTL_MS) return cachedCliToken;
+  let stdout = "";
+  try {
+    const result = await execFileAsync("gcloud", ["auth", "print-access-token"], {
+      timeout: 20000,
+      encoding: "utf8",
     });
+    stdout = result.stdout || "";
+  } catch (err) {
+    throw new Error(`gcloud auth login is not usable (${err.message}). Run: gcloud auth login`);
   }
-  const client = await auth.getClient();
-  const token = await client.getAccessToken();
-  if (!token?.token) {
-    throw new Error("No Google Cloud access token. Run: gcloud auth application-default login");
+  const token = stdout.trim();
+  if (!token) throw new Error("gcloud auth print-access-token returned nothing. Run: gcloud auth login");
+  cachedCliToken = token;
+  cachedCliTokenAt = Date.now();
+  return token;
+}
+
+async function accessToken() {
+  if (authSource() !== "gcloud-user") {
+    if (!auth) {
+      auth = new GoogleAuth({
+        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+        projectId: projectId() || undefined,
+      });
+    }
+    const client = await auth.getClient();
+    const token = await client.getAccessToken();
+    if (!token?.token) throw new Error("No Google Cloud access token from the runtime service account");
+    return token.token;
   }
-  return token.token;
+  return gcloudAccessToken();
+}
+
+export async function probeGoogleAuth() {
+  const token = await accessToken();
+  return { ok: Boolean(token), project: projectId() || null, auth: authSource() };
 }
 
 function textFromGemini(data) {
@@ -167,27 +213,39 @@ export async function generateDiagram(prompt) {
   throw new Error(lastError || "The image model returned no image");
 }
 
-const VOICE = {
-  en: "en-US-Neural2-F",
-  hi: "hi-IN-Neural2-A",
-  es: "es-ES-Neural2-A",
+const LECTURE_VOICE = {
+  "8-10": { persona: "Leda", speakingRate: 0.96 },
+  "11-14": { persona: "Sulafat", speakingRate: 1 },
+  "15-18": { persona: "Callirrhoe", speakingRate: 1 },
 };
 
-export async function synthesizeSpeech(text, lang = "en") {
+function lectureVoice(lang = "en", ageGroup = "11-14") {
+  const languageCode = lang === "hi" ? "hi-IN" : lang === "es" ? "es-ES" : "en-US";
+  const lecture = LECTURE_VOICE[ageGroup] || LECTURE_VOICE["11-14"];
+  const fallback = `${languageCode}-Chirp3-HD-${lecture.persona}`;
+  const name = lang === "en" && process.env.TTS_VOICE ? process.env.TTS_VOICE : fallback;
+  return { languageCode, name, speakingRate: lecture.speakingRate };
+}
+
+export async function synthesizeSpeech(text, lang = "en", ageGroup = "11-14", speakingRate) {
   if (!projectId()) return null;
   const token = await accessToken();
-  const voiceName = lang === "en" ? process.env.TTS_VOICE || VOICE.en : VOICE[lang] || VOICE.en;
-  const languageCode = lang === "hi" ? "hi-IN" : lang === "es" ? "es-ES" : "en-US";
+  const voice = lectureVoice(lang, ageGroup);
+  const rate =
+    Number(speakingRate) > 0
+      ? Math.min(1.2, Math.max(0.85, Number(speakingRate)))
+      : voice.speakingRate;
   const res = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+      ...(projectId() ? { "x-goog-user-project": projectId() } : {}),
     },
     body: JSON.stringify({
       input: { text: text.slice(0, 1200) },
-      voice: { languageCode, name: voiceName },
-      audioConfig: { audioEncoding: "MP3", speakingRate: 0.98 },
+      voice: { languageCode: voice.languageCode, name: voice.name, ssmlGender: "FEMALE" },
+      audioConfig: { audioEncoding: "MP3", speakingRate: rate },
     }),
   });
   const data = await res.json().catch(() => ({}));
@@ -455,6 +513,7 @@ export function healthInfo(extra = {}) {
     ok: true,
     engine: engineMode(),
     project: projectId() || null,
+    auth: authSource(),
     location: location(),
     model: geminiModel(),
     imagen: process.env.IMAGEN_MODEL || "gemini-2.5-flash-image",

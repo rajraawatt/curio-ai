@@ -8,7 +8,15 @@ import {
   generateVeoClipFromImage,
   projectId,
 } from "./gcp.js";
+import { normalizeCaptions, normalizeNarration, withHouseStyle } from "./preparePrompt.js";
 import { generateGlbFromLocalImage, tripoEnabled } from "./tripo.js";
+import {
+  MAX_LESSON_CLIPS,
+  MERGE_FADE_SECONDS,
+  buildMergedVideoMeta,
+  ensureMergedLessonVideo,
+  mergeLessonClips,
+} from "./mergeLessonVideo.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const GENERATED_ROOT = path.join(__dirname, "../../frontend/public/generated");
@@ -121,7 +129,8 @@ function normalizePlan(parsed, objectLimit = 2) {
       return {
         id: slug(beat.id) || fb.id,
         title: String(beat.title || fb.title).slice(0, 80),
-        narration: String(beat.narration || fb.narration).slice(0, 200),
+        narration: normalizeNarration(beat.narration, fb.narration),
+        captions: normalizeCaptions(beat.captions, beat.narration || fb.narration),
         durationHintSec: Number(beat.durationHintSec) || 8,
         objectId,
         videoPrompt: String(beat.videoPrompt || fb.videoPrompt).slice(0, 400),
@@ -134,7 +143,8 @@ function normalizePlan(parsed, objectLimit = 2) {
     beats = objects.map((o, i) => ({
       id: `beat_${o.id}`,
       title: o.label,
-      narration: o.reason,
+      narration: normalizeNarration(o.reason),
+      captions: normalizeCaptions(null, o.reason),
       durationHintSec: 8,
       objectId: o.id,
       videoPrompt: `${o.imagePrompt}. Subtle camera move, educational science video, no text, no labels`,
@@ -158,7 +168,11 @@ Return JSON only:
     {
       "id": "snake_case",
       "title": "short title",
-      "narration": "one sentence for students",
+      "narration": { "en": "one sentence", "hi": "एक वाक्य", "es": "una oración" },
+      "captions": [
+        { "atSec": 0, "text": { "en": "what is on screen, plus one fact", "hi": "स्क्रीन पर क्या है, और एक तथ्य", "es": "qué se ve, y un dato" } },
+        { "atSec": 4, "text": { "en": "why this moment matters", "hi": "यह क्षण क्यों मायने रखता है", "es": "por qué importa este momento" } }
+      ],
       "durationHintSec": 8,
       "objectId": "matching_object_id",
       "videoPrompt": "Veo motion prompt for this beat, no on-screen text"
@@ -178,18 +192,24 @@ Return JSON only:
 }
 
 Rules:
-- Exactly ${objectLimit} objects and ${objectLimit} beats (one beat per object).
+- Exactly ${objectLimit} objects and ${objectLimit} beats (one beat per object), in story order.
+- The beats together answer the topic. Beat 1 is the world before. The last beat is the cause and the ending.
+- Keywords support that story. Do not turn each keyword into its own unrelated object.
+- For "extinction of dinosaurs", beat 1 is the living kingdom (families and their food). Beat 2 is what ended it (the cause, then the kingdom gone). Do not use a museum skeleton, a lone fern, or a jungle portrait unless that image itself shows the cause or the ending.
 - Each beat.objectId must match an object.id.
-- Prefer clear biology teaching objects if the prompt is about cells.
-- imagePrompt must describe a single isolated object (good for image-to-3D).
-- videoPrompt should describe gentle camera motion around that same object.`;
+- imagePrompt and videoPrompt stay in English.
+- imagePrompt: one clear subject a student could turn in 3D, placed in the story's setting (a family of dinosaurs grazing, an asteroid above the Earth). Not a blank studio product shot.
+- videoPrompt: what happens in this scene and why, with a gentle camera move. No on-screen text.
+- narration.en, narration.hi, and narration.es are real translations. One simple sentence for the age group. Together the narrations tell how and why.
+- captions: exactly 2 short lines per beat, at 0 and 4 seconds. Each line is at most 8 words for ages 8-10 (12 words for older). Name what is visible, then one fact (when, what happened, or why). Real translations in en, hi, and es.
+- Captions are drawn on the player. Do not ask for words inside the picture.`;
 
   const raw = await geminiGenerate(prompt, { json: true });
   return normalizePlan(JSON.parse(raw), objectLimit);
 }
 
 async function writeStill(assetDir, object) {
-  const imagePrompt = `${object.imagePrompt}. Single isolated educational object, centered, clean studio lighting, high detail, no text, no labels, no watermark`;
+  const imagePrompt = `${object.imagePrompt}. One clear subject that can become a 3D model, detailed, no text, no labels, no watermark. Keep the place and moment of the story.`;
   const dataUrl = await generateDiagram(imagePrompt);
   const { mimeType, base64 } = parseDataUrl(dataUrl);
   const ext = mimeType.includes("jpeg") || mimeType.includes("jpg") ? "jpg" : "png";
@@ -245,7 +265,7 @@ function planFromExistingPack(existing, objectLimit) {
       : objects.map((o) => ({
           id: `beat_${o.id}`,
           title: o.label,
-          narration: o.reason,
+          narration: normalizeNarration(o.reason),
           durationHintSec: 8,
           objectId: o.id,
           videoPrompt: o.imagePrompt,
@@ -281,6 +301,7 @@ export async function prepareCellAssets({
   useTripo = true,
   reuseExisting = false,
   objectCount = 2,
+  lesson = null,
   onProgress = null,
 } = {}) {
   const teacherPrompt = String(prompt || summary || MOCK_CELL_SUMMARY).trim();
@@ -290,11 +311,12 @@ export async function prepareCellAssets({
   await ensureDir(videoDir);
 
   const existingPack = reuseExisting ? await readCellPack() : null;
-  const limit = Math.min(Math.max(Number(objectCount) || 2, 1), 3);
+  const limit = Math.min(Math.max(Number(objectCount) || 2, 1), MAX_LESSON_CLIPS);
   const steps = [];
   let planSource = "fallback";
   let plan = normalizePlan(FALLBACK_PLAN, limit);
   let videos = reuseExisting && Array.isArray(existingPack?.videos) ? [...existingPack.videos] : [];
+  let mergedVideo = reuseExisting ? existingPack?.mergedVideo || null : null;
   let assets = [];
   const stillByObject = {};
 
@@ -311,13 +333,20 @@ export async function prepareCellAssets({
       engine: engineMode(),
       teacherPrompt,
       summary: teacherPrompt,
+      topic: lesson?.topic || null,
+      ageGroup: lesson?.ageGroup || null,
+      keywords: lesson?.keywords || [],
+      language: lesson?.language || "en",
+      released: false,
       planSource,
       useVeo,
       useTripo,
       reuseExisting,
       beats: plan.beats,
       videos,
-      videoDurationSec: videos.reduce((n, v) => n + (v.durationSeconds || 0), 0),
+      mergedVideo,
+      videoDurationSec: mergedVideo?.durationSeconds
+        || videos.reduce((n, v) => n + (v.durationSeconds || 0), 0),
       pipeline: Object.fromEntries(steps.map((step, i) => [`step${i + 1}`, step])),
       assets,
       ...extra,
@@ -326,6 +355,13 @@ export async function prepareCellAssets({
     if (typeof onProgress === "function") await onProgress(pack);
     return pack;
   };
+
+  if (useVeo && !projectId()) {
+    throw new Error("Veo requested but no Google project is set. Run: gcloud auth login && gcloud config set project PROJECT_ID");
+  }
+  if (useTripo && !tripoEnabled()) {
+    throw new Error("Tripo requested but TRIPO_API_KEY is missing (or TRIPO_ENABLED=false)");
+  }
 
   await emit("starting", { notice: reuseExisting ? "Prepare started (reuse existing stills/video where possible)" : "Prepare started" });
 
@@ -369,13 +405,6 @@ export async function prepareCellAssets({
     },
   }));
   await emit("planned");
-
-  if (useVeo && !projectId()) {
-    throw new Error("Veo requested but GOOGLE_CLOUD_PROJECT / ADC is not configured");
-  }
-  if (useTripo && !tripoEnabled()) {
-    throw new Error("Tripo requested but TRIPO_API_KEY is missing (or TRIPO_ENABLED=false)");
-  }
 
   // 2) Stills — reuse on-disk source.* when requested
   for (let i = 0; i < plan.objects.length; i++) {
@@ -426,7 +455,7 @@ export async function prepareCellAssets({
       const durationSeconds = 8;
       await emit("veo", { notice: `Veo generating clip for ${beat.title}…` });
       await generateVeoClipFromImage({
-        prompt: beat.videoPrompt || `${beat.title}. Educational science clip, no text`,
+        prompt: withHouseStyle(beat.videoPrompt || `${beat.title}. Educational science clip, no text`),
         imageBase64: still.base64,
         mimeType: still.mimeType,
         destPath,
@@ -439,6 +468,7 @@ export async function prepareCellAssets({
           title: beat.title,
           objectId: beat.objectId,
           narration: beat.narration,
+          captions: beat.captions,
           durationSeconds,
           url: `/generated/${PACK_ID}/video/${fileName}?t=${Date.now()}`,
         },
@@ -452,6 +482,29 @@ export async function prepareCellAssets({
   } else {
     steps.push("Veo skipped");
     await emit("veo-skipped");
+  }
+
+  if (videos.length >= 2) {
+    const destPath = path.join(videoDir, "lesson-merged.mp4");
+    const clipPaths = videos.slice(0, MAX_LESSON_CLIPS).map((clip) => {
+      const name = clip.url.split("/").pop().split("?")[0];
+      return path.join(videoDir, name);
+    });
+    await emit("merge", { notice: "Merging clips into one lesson video…" });
+    try {
+      const info = await mergeLessonClips(clipPaths, destPath, { fadeSec: MERGE_FADE_SECONDS });
+      mergedVideo = {
+        ...buildMergedVideoMeta(videos, PACK_ID, MERGE_FADE_SECONDS),
+        durationSeconds: info.durationSeconds,
+        url: `/generated/${PACK_ID}/video/lesson-merged.mp4?t=${Date.now()}`,
+      };
+      steps.push(`Merged 2 clips into one ${info.durationSeconds.toFixed(1)}s lesson video`);
+      await emit("merge-ready", { notice: "One lesson video ready (~16s)" });
+    } catch (err) {
+      mergedVideo = buildMergedVideoMeta(videos, PACK_ID, MERGE_FADE_SECONDS);
+      steps.push(`Merge skipped: ${err.message}`);
+      await emit("merge-error", { notice: `Could not merge clips: ${err.message}` });
+    }
   }
 
   // 4) Tripo
@@ -528,7 +581,13 @@ export async function readCellPack() {
   const manifestPath = path.join(GENERATED_ROOT, `${PACK_ID}/manifest.json`);
   try {
     const text = await fs.readFile(manifestPath, "utf8");
-    return JSON.parse(text);
+    const pack = JSON.parse(text);
+    const prevRevision = pack.mergedVideo?.mergeRevision;
+    const next = await ensureMergedLessonVideo(pack, { packId: PACK_ID, generatedRoot: GENERATED_ROOT });
+    if (next.mergedVideo?.url && prevRevision !== next.mergedVideo?.mergeRevision) {
+      await fs.writeFile(manifestPath, JSON.stringify(next, null, 2), "utf8");
+    }
+    return next;
   } catch {
     return null;
   }
