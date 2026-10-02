@@ -1,3 +1,4 @@
+import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -20,4 +21,26 @@ try {
   }
 } catch {
   // No local .env. Cloud Run uses the service environment.
+}
+
+function gcloudValue(args) {
+  try {
+    const out = execFileSync("gcloud", args, {
+      encoding: "utf8",
+      timeout: 20000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (!out || out === "(unset)") return "";
+    return out;
+  } catch {
+    return "";
+  }
+}
+
+if (!process.env.GOOGLE_CLOUD_PROJECT) {
+  const project = gcloudValue(["config", "get-value", "project"]);
+  if (project) {
+    process.env.GOOGLE_CLOUD_PROJECT = project;
+    console.log(`Using gcloud project ${project}`);
+  }
 }

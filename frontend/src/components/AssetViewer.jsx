@@ -1,24 +1,6 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, useGLTF, Center } from "@react-three/drei";
-import { Suspense, useMemo } from "react";
-
-function MockMesh({ mesh }) {
-  const color = mesh?.color || "#90caf9";
-  const type = mesh?.type || "sphere";
-
-  const geometry = useMemo(() => {
-    if (type === "capsule") return <capsuleGeometry args={[mesh.radius || 0.45, mesh.length || 1.2, 8, 16]} />;
-    if (type === "torus") return <torusGeometry args={[mesh.radius || 1.2, mesh.tube || 0.18, 16, 48]} />;
-    return <sphereGeometry args={[mesh.radius || 1, 32, 32]} />;
-  }, [type, mesh?.radius, mesh?.length, mesh?.tube]);
-
-  return (
-    <mesh castShadow receiveShadow>
-      {geometry}
-      <meshStandardMaterial color={color} roughness={0.35} metalness={0.1} />
-    </mesh>
-  );
-}
+import { Suspense } from "react";
 
 function GlbMesh({ url }) {
   const { scene } = useGLTF(url);
@@ -40,10 +22,19 @@ export function StillViewer({ stillUrl, label }) {
   );
 }
 
-/** Tripo / mock 3D only. */
+/** Real Tripo model only. A failed run has no mesh to turn. */
 export function AssetViewer({ mesh, label, glbUrl }) {
-  if (!glbUrl && !mesh) {
-    return <div className="prepare-model empty">Waiting for 3D…</div>;
+  if (!glbUrl) {
+    const failed = mesh?.status === "error" || mesh?.generator === "tripo-failed";
+    return (
+      <div className="prepare-model empty">
+        <p>
+          {failed
+            ? "No 3D model to turn. Tripo ran out of credit, so the picture above was not made into a model."
+            : "The 3D model has not been made yet."}
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -58,7 +49,7 @@ export function AssetViewer({ mesh, label, glbUrl }) {
         <ambientLight intensity={0.75} />
         <directionalLight position={[4, 6, 2]} intensity={1.35} castShadow />
         <Suspense fallback={null}>
-          {glbUrl ? <GlbMesh url={glbUrl} /> : <MockMesh mesh={mesh} />}
+          <GlbMesh url={glbUrl} />
         </Suspense>
         <OrbitControls
           makeDefault

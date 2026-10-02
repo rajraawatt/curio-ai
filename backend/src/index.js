@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { addQuestion, control, currentNarration, publicState, subscribe } from "./classroom.js";
 import { generateDiagram, healthInfo, startVeoClip, synthesizeSpeech } from "./gcp.js";
 import { prepareCellAssets, readCellPack, MOCK_CELL_SUMMARY } from "./prepareAssets.js";
+import { lessonFromBody } from "./preparePrompt.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -63,7 +64,12 @@ app.post("/api/tts", async (req, res) => {
   try {
     const text = String(req.body?.text || currentNarration() || "").trim();
     if (!text) return res.status(204).end();
-    const audio = await synthesizeSpeech(text, req.body?.language || "en");
+    const audio = await synthesizeSpeech(
+      text,
+      req.body?.language || "en",
+      req.body?.ageGroup || "11-14",
+      req.body?.speakingRate
+    );
     if (!audio) return res.status(204).end();
     res.set("Content-Type", "audio/mpeg");
     res.send(audio);
@@ -121,12 +127,13 @@ app.post("/api/prepare/assets", async (req, res) => {
   const useTripo = Boolean(req.body?.useTripo);
   const reuseExisting = Boolean(req.body?.reuseExisting);
   const objectCount = Number(req.body?.objectCount) || 2;
-  const prompt =
-    typeof req.body?.prompt === "string" && req.body.prompt.trim()
-      ? req.body.prompt.trim()
-      : typeof req.body?.summary === "string" && req.body.summary.trim()
-        ? req.body.summary.trim()
-        : MOCK_CELL_SUMMARY;
+  let lesson;
+  try {
+    lesson = lessonFromBody(req.body, MOCK_CELL_SUMMARY);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  const { prompt } = lesson;
 
   if (useStream) {
     res.setHeader("Content-Type", "text/event-stream");
@@ -140,6 +147,7 @@ app.post("/api/prepare/assets", async (req, res) => {
       send("status", { notice: "Prepare stream started" });
       const pack = await prepareCellAssets({
         prompt,
+        lesson,
         useGemini,
         useVeo,
         useTripo,
@@ -162,6 +170,7 @@ app.post("/api/prepare/assets", async (req, res) => {
   try {
     const pack = await prepareCellAssets({
       prompt,
+      lesson,
       useGemini,
       useVeo,
       useTripo,

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { AnalyticsPanel } from "./components/AnalyticsPanel.jsx";
 import { QuestionPanel } from "./components/QuestionPanel.jsx";
 import { SidePanel } from "./components/SidePanel.jsx";
+import { ClassLessonStage, stageClipFromPack } from "./components/ClassLessonStage.jsx";
+import { PrepareAssetPicker } from "./components/PrepareAssetPicker.jsx";
 import { Toolbar } from "./components/Toolbar.jsx";
 import { VideoSettings } from "./components/VideoSettings.jsx";
 import { useClassroom } from "./useClassroom.js";
@@ -13,6 +15,8 @@ export function Teacher() {
   const [projecting, setProjecting] = useState(false);
   const [sideCollapsed, setSideCollapsed] = useState(false);
   const [health, setHealth] = useState(null);
+  const [stagePack, setStagePack] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/health")
@@ -69,17 +73,27 @@ export function Teacher() {
         {(nav === "classroom" || nav === "questions") && (
           <div className="class-grid">
             <div>
-              <div className="stage-empty" aria-label="Lesson stage">
-                <img className="stage-sample" src="/sample-lesson.svg" alt="Lesson frame placeholder" />
-                <div className="stage-empty-copy">
-                  <p className="stage-empty-kicker">Lesson stage</p>
-                  <h2>{state.lesson?.title || "How mountains form"}</h2>
-                  <p>Sample frame for MVP. Students mark a region on their screen and ask about it.</p>
-                  <span className="stage-empty-meta">
-                    {state.phase} · {state.playing ? "playing" : "paused"} · Room {state.room}
-                  </span>
+              {stagePack && stageClipFromPack(stagePack) ? (
+                <ClassLessonStage
+                  pack={stagePack}
+                  language={state.language}
+                  captions={captions}
+                  playing={state.playing}
+                  onClear={() => setStagePack(null)}
+                />
+              ) : (
+                <div className="stage-empty" aria-label="Lesson stage">
+                  <img className="stage-sample" src="/sample-lesson.svg" alt="Lesson frame placeholder" />
+                  <div className="stage-empty-copy">
+                    <p className="stage-empty-kicker">Lesson stage</p>
+                    <h2>{state.lesson?.title || "How mountains form"}</h2>
+                    <p>Use Upload to load a lesson video from Prepare assets.</p>
+                    <span className="stage-empty-meta">
+                      {state.phase} · {state.playing ? "playing" : "paused"} · Room {state.room}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
               <Toolbar
                 state={state}
                 act={act}
@@ -87,6 +101,17 @@ export function Teacher() {
                 projecting={projecting}
                 onCaptions={() => setCaptions((value) => !value)}
                 onProject={() => setProjecting((value) => !value)}
+                onUpload={() => setPickerOpen(true)}
+                uploadActive={Boolean(stagePack)}
+              />
+              <PrepareAssetPicker
+                open={pickerOpen}
+                onClose={() => setPickerOpen(false)}
+                onSelect={(pack) => {
+                  setStagePack(pack);
+                  setPickerOpen(false);
+                  act("notice", { notice: `Loaded ${pack.topic || "prepared lesson"}` });
+                }}
               />
             </div>
             <QuestionPanel state={state} act={act} exploreId={exploreId} />

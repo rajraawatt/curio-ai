@@ -15,7 +15,7 @@ function Lang({ state, act }) {
   );
 }
 
-export function Toolbar({ state, act, captions, projecting, onCaptions, onProject }) {
+export function Toolbar({ state, act, captions, projecting, onCaptions, onProject, onUpload, uploadActive }) {
   return (
     <div className="transport">
       {state.phase === "transforming" ? (
@@ -50,6 +50,11 @@ export function Toolbar({ state, act, captions, projecting, onCaptions, onProjec
       <button type="button" className={projecting ? "on" : ""} onClick={onProject}>
         Project
       </button>
+      {onUpload && (
+        <button type="button" className={uploadActive ? "on" : ""} onClick={onUpload}>
+          Upload
+        </button>
+      )}
       <Lang state={state} act={act} />
     </div>
   );
