@@ -2,7 +2,7 @@ import "./env.js";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { addQuestion, control, currentNarration, publicState, subscribe } from "./classroom.js";
+import { addQuestion, control, currentNarration, publicState, subscribe, trackEvent } from "./classroom.js";
 import { generateDiagram, healthInfo, startVeoClip, synthesizeSpeech } from "./gcp.js";
 import { prepareCellAssets, readCellPack, MOCK_CELL_SUMMARY } from "./prepareAssets.js";
 import { lessonFromBody } from "./preparePrompt.js";
@@ -45,6 +45,15 @@ app.post("/api/questions", (req, res) => {
   try {
     const question = addQuestion(req.body || {});
     res.status(201).json(question);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.post("/api/analytics/track", (req, res) => {
+  try {
+    const snapshot = trackEvent(req.body || {});
+    res.json(snapshot);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

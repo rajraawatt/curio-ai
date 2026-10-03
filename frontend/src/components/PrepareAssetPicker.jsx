@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
+import { clipAnalyticsMeta } from "../clipAnalyticsMeta.js";
 
-function packLabel(pack) {
-  const topic = pack?.topic || pack?.summary?.split("\n")[0]?.replace(/^Topic:\s*/, "") || "Prepared lesson";
+function mergedLabel(pack) {
+  const topic = pack?.topic || "Prepared lesson";
   const seconds = Math.round(pack?.videoDurationSec || pack?.mergedVideo?.durationSeconds || 16);
-  return `${topic} · ${seconds}s`;
+  return `${topic} — full merged lesson (~${seconds}s)`;
 }
 
 export function PrepareAssetPicker({ open, onClose, onSelect }) {
@@ -19,6 +20,9 @@ export function PrepareAssetPicker({ open, onClose, onSelect }) {
       .then((res) => res.json())
       .then((data) => {
         if (!data.pack) throw new Error("No prepared pack found yet.");
+        if (!data.pack.mergedVideo?.url) {
+          throw new Error("No merged lesson video yet. Finish Prepare and wait for the merge step.");
+        }
         setPack(data.pack);
       })
       .catch((err) => setError(err.message))
@@ -27,11 +31,7 @@ export function PrepareAssetPicker({ open, onClose, onSelect }) {
 
   if (!open) return null;
 
-  const clip = pack?.mergedVideo?.url
-    ? pack.mergedVideo
-    : pack?.videos?.[0]
-      ? pack.videos[0]
-      : null;
+  const merged = pack?.mergedVideo?.url ? clipAnalyticsMeta(pack.mergedVideo, pack) : null;
 
   return (
     <div className="prepare-picker-backdrop" role="presentation" onClick={onClose}>
@@ -42,41 +42,26 @@ export function PrepareAssetPicker({ open, onClose, onSelect }) {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="prepare-picker-head">
-          <h3 id="prepare-picker-title">Load prepared asset</h3>
+          <h3 id="prepare-picker-title">Load merged lesson</h3>
           <button type="button" className="prepare-picker-close" onClick={onClose} aria-label="Close">
             ×
           </button>
         </header>
-        <p className="prepare-picker-note">Choose the lesson video you built on the Prepare assets page.</p>
+        <p className="prepare-picker-note">
+          Only the <strong>full merged video</strong> (~16s) is shown in class. Separate clips and 3D assets stay on
+          Prepare.
+        </p>
         {busy && <p className="prepare-picker-status">Loading pack…</p>}
         {error && <p className="error">{error}</p>}
-        {!busy && !error && pack && (
+        {!busy && !error && pack && merged && (
           <ul className="prepare-picker-list">
-            {clip ? (
-              <li>
-                <button
-                  type="button"
-                  className="prepare-picker-item"
-                  onClick={() => onSelect(pack)}
-                >
-                  <strong>{packLabel(pack)}</strong>
-                  <span>{clip.title || "Lesson video"}</span>
-                </button>
-              </li>
-            ) : (
-              <li className="prepare-picker-empty">No video in this pack yet. Generate one on Prepare assets first.</li>
-            )}
-            {(pack.assets || []).map((asset) => (
-              <li key={asset.id}>
-                <div className="prepare-picker-asset">
-                  <strong>{asset.label}</strong>
-                  <span>{asset.reason}</span>
-                  {asset.sourceImageUrl && (
-                    <img src={asset.sourceImageUrl.split("?")[0]} alt="" loading="lazy" />
-                  )}
-                </div>
-              </li>
-            ))}
+            <li>
+              <button type="button" className="prepare-picker-item" onClick={() => onSelect(pack)}>
+                <strong>{mergedLabel(pack)}</strong>
+                <span>{merged.displayLabel}</span>
+                <code className="prepare-picker-file">{merged.fileHint}</code>
+              </button>
+            </li>
           </ul>
         )}
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { prefetchCaption, speakCaption, stopCaptionVoice } from "../speech.js";
+import { trackAnalytics } from "../analyticsClient.js";
 
 function clipCues(clip) {
   if (clip?.merged) {
@@ -60,10 +61,15 @@ export function LessonClipPlayer({
   captions = true,
   playing,
   compact = false,
+  trackStudent,
+  trackPlayback,
+  trackMode = "self_paced",
+  trackAs = "Viewer",
 }) {
   const videoRef = useRef(null);
   const speakingRef = useRef(false);
   const finishedRef = useRef(-1);
+  const playLoggedRef = useRef("");
   const [time, setTime] = useState(0);
   const [reading, setReading] = useState(-1);
   const cues = clipCues(clip);
@@ -112,11 +118,39 @@ export function LessonClipPlayer({
   }, [clip, lang, ageGroup]);
 
   useEffect(() => {
+    playLoggedRef.current = "";
+    const video = videoRef.current;
+    if (video && !video.paused && !video.ended) logVideoPlay();
+  }, [clip.url, lang]);
+
+  const shouldTrack = trackPlayback ?? Boolean(clip.merged || clip.analyticsId === "lesson-merged");
+
+  function logVideoPlay() {
+    if (!shouldTrack) return;
+    const itemId = clip.analyticsId || clip.id || src.replace(/^.*\//, "").replace(/\?.*$/, "") || "lesson-video";
+    const key = `${itemId}:${lang}`;
+    if (playLoggedRef.current === key) return;
+    playLoggedRef.current = key;
+    trackAnalytics({
+      event_type: "video_play",
+      name: trackStudent || trackAs,
+      item_id: itemId,
+      item_label: clip.displayLabel || clip.title || "Lesson video",
+      language: lang,
+      mode: trackMode,
+      source: "player",
+      value_num: 1,
+      concept: clip.fileHint || "",
+      pack_id: clip.packId || "cell-mvp",
+    });
+  }
+
+  useEffect(() => {
     if (playing == null) return;
     const video = videoRef.current;
     if (!video) return;
     if (playing) {
-      video.play().catch(() => {});
+      video.play().then(() => logVideoPlay()).catch(() => {});
     } else {
       speakingRef.current = false;
       stopCaptionVoice(video);
@@ -134,20 +168,38 @@ export function LessonClipPlayer({
           controls
           playsInline
           preload="metadata"
-          onPlay={(e) => startNextRef.current(e.currentTarget)}
+          onPlay={(e) => {
+            logVideoPlay();
+            startNextRef.current(e.currentTarget);
+          }}
           onTimeUpdate={(e) => {
             setTime(e.currentTarget.currentTime);
             startNextRef.current(e.currentTarget);
           }}
           onEnded={(e) => setTime(e.currentTarget.duration || e.currentTarget.currentTime)}
           onSeeked={(e) => {
-            stopCaptionVoice(e.currentTarget);
+            const video = e.currentTarget;
+            const prev = time;
+            stopCaptionVoice(video);
             speakingRef.current = false;
-            const index = cueIndex(cues, e.currentTarget.currentTime);
+            const index = cueIndex(cues, video.currentTime);
             finishedRef.current = index - 1;
             setReading(-1);
-            setTime(e.currentTarget.currentTime);
-            if (!e.currentTarget.paused) startNextRef.current(e.currentTarget);
+            setTime(video.currentTime);
+            if (shouldTrack && video.currentTime + 0.5 < prev) {
+              trackAnalytics({
+                event_type: "rewind",
+                name: trackStudent || trackAs,
+                item_id: clip.analyticsId || "lesson-merged",
+                item_label: clip.displayLabel || clip.title || "Lesson video",
+                value_num: Math.round(prev - video.currentTime),
+                mode: trackMode,
+                source: "player",
+                concept: clip.fileHint || "",
+                pack_id: clip.packId || "cell-mvp",
+              });
+            }
+            if (!video.paused) startNextRef.current(video);
           }}
           onPause={(e) => {
             const video = e.currentTarget;

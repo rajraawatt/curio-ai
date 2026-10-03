@@ -1,15 +1,15 @@
+import { clipAnalyticsMeta } from "../clipAnalyticsMeta.js";
 import { LessonClipPlayer } from "./LessonClipPlayer.jsx";
 
 export function stageClipFromPack(pack) {
-  if (!pack) return null;
-  if (pack.mergedVideo?.url) return pack.mergedVideo;
-  if (pack.videos?.[0]?.url) return pack.videos[0];
-  return null;
+  if (!pack?.mergedVideo?.url) return null;
+  return pack.mergedVideo;
 }
 
 export function ClassLessonStage({ pack, language, captions, playing, onClear }) {
-  const clip = stageClipFromPack(pack);
-  if (!clip) return null;
+  const raw = stageClipFromPack(pack);
+  if (!raw) return null;
+  const clip = clipAnalyticsMeta(raw, pack);
   const ageGroup = pack?.ageGroup || "11-14";
   const title = pack?.topic || pack?.lesson?.title || "Prepared lesson";
 
@@ -31,6 +31,8 @@ export function ClassLessonStage({ pack, language, captions, playing, onClear })
         captions={captions}
         playing={playing}
         compact
+        trackMode="live"
+        trackAs="Teacher desk"
       />
     </div>
   );
