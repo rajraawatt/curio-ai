@@ -9,9 +9,9 @@ const TABS = [
 ];
 
 const LANG_META = {
-  en: { label: "English", color: "#8ab4f8" },
-  hi: { label: "Hindi", color: "#f28b82" },
-  es: { label: "Spanish", color: "#81c995" },
+  en: { label: "English", color: "#7C3AED" },
+  hi: { label: "Hindi", color: "#EC4899" },
+  es: { label: "Spanish", color: "#C4B5FD" },
 };
 
 function pieGradient(byLang) {
@@ -25,7 +25,7 @@ function pieGradient(byLang) {
       deg += slice;
       return `${LANG_META[code].color} ${start}deg ${deg}deg`;
     });
-  return parts.length ? parts.join(", ") : "#3c4043 0deg 360deg";
+  return parts.length ? parts.join(", ") : "#E8E2D8 0deg 360deg";
 }
 
 function LangPieCard({ video, compact, selected, onSelect }) {

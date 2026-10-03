@@ -1,9 +1,8 @@
 {
-  "generator": "tripo-failed",
-  "status": "error",
-  "error": "Tripo /generation/image-to-model failed: You don't have enough credit to create this task",
-  "color": "#808080",
-  "sourceImage": "source.png",
+  "generator": "still-only",
+  "status": "mock",
+  "note": "Tripo skipped — still ready for later 3D",
+  "color": "#FF5722",
   "type": "sphere",
-  "radius": 1
+  "radius": 1.2
 }

@@ -59,7 +59,8 @@ async function readPrepareStream(res, onEvent) {
   }
 }
 
-export function Prepare() {
+/** Shared Prepare studio — use embedded inside teacher, or full page at /prepare. */
+export function PrepareStudio({ embedded = false }) {
   const [pack, setPack] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -72,6 +73,7 @@ export function Prepare() {
   const [useGemini, setUseGemini] = useState(true);
   const [useVeo, setUseVeo] = useState(true);
   const [useTripo, setUseTripo] = useState(true);
+  const [sharingLearning, setSharingLearning] = useState(false);
 
   async function loadPack() {
     const res = await fetch("/api/prepare/assets");
@@ -90,7 +92,32 @@ export function Prepare() {
     loadPack().catch((err) => setError(err.message));
   }, []);
 
-  async function generate() {
+  async function shareForLearning() {
+    if (!pack?.mergedVideo?.url && !pack?.videos?.some((v) => v?.url)) {
+      setError("Generate a lesson video before sharing for Learning.");
+      return;
+    }
+    setSharingLearning(true);
+    setError("");
+    try {
+      const res = await fetch("/api/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setLearningLesson", pack }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not share for Learning.");
+      setNotice(`Shared for Learning: ${pack.topic || "Prepared lesson"}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSharingLearning(false);
+    }
+  }
+
+  async function generate(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     if (!topic.trim()) {
       setError("Add a topic for the next class.");
       return;
@@ -123,16 +150,16 @@ export function Prepare() {
         throw new Error(data.error || `Prepare failed (${res.status})`);
       }
 
-      await readPrepareStream(res, (event, data) => {
-        const nextPack = event === "pack" ? data : data.pack;
-        if (nextPack && (event === "pack" || event === "done")) {
+      await readPrepareStream(res, (eventName, data) => {
+        const nextPack = eventName === "pack" ? data : data.pack;
+        if (nextPack && (eventName === "pack" || eventName === "done")) {
           setPack(nextPack);
           setProgress(packProgress(nextPack));
         }
-        if (event === "error") setError(data.error || "Prepare failed");
+        if (eventName === "error") setError(data.error || "Prepare failed");
         else if (data.notice || nextPack?.notice) setNotice(data.notice || nextPack.notice);
-        else if (event === "status") setNotice(data.notice || "Working…");
-        if (event === "done") {
+        else if (eventName === "status") setNotice(data.notice || "Working…");
+        if (eventName === "done") {
           setProgress(100);
           setNotice(data.pack?.notice || "Done");
         }
@@ -144,18 +171,36 @@ export function Prepare() {
     }
   }
 
-  return (
-    <main className="prepare">
-      <header className="prepare-header">
-        <Wordmark />
-        <div>
-          <h1>Prepare assets</h1>
-          <p>One lesson video (~16s): two scenes merged with a smooth fade. Each scene keeps one subject for 3D.</p>
-        </div>
-        <a href="/">Back</a>
-      </header>
+  const Root = embedded ? "div" : "main";
+  const rootClass = embedded ? "g-prepare" : "prepare";
+  const showExtras = !embedded;
 
-      <section className="prepare-panel">
+  return (
+    <Root className={rootClass}>
+      {embedded ? (
+        <header className="g-prepare__hero">
+          <p className="g-prepare__kicker">Teacher tool</p>
+          <h1>Prepare assets</h1>
+          <p>Fill in the lesson details, then generate a pack for class.</p>
+        </header>
+      ) : (
+        <header className="prepare-header">
+          <Wordmark />
+          <div>
+            <h1>Prepare assets</h1>
+            <p>One lesson video (~16s): two scenes merged with a smooth fade. Each scene keeps one subject for 3D.</p>
+          </div>
+          <a href="/">Back</a>
+        </header>
+      )}
+
+      <form
+        className="prepare-panel"
+        onSubmit={(event) => {
+          event.preventDefault();
+          generate(event);
+        }}
+      >
         <h2>Lesson to prepare</h2>
         <div className="prepare-fields">
           <label className="prepare-field wide">
@@ -171,7 +216,9 @@ export function Prepare() {
             Student age group
             <select value={ageGroup} onChange={(e) => setAgeGroup(e.target.value)} disabled={busy}>
               {AGES.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+                <option key={value} value={value}>
+                  {label}
+                </option>
               ))}
             </select>
           </label>
@@ -179,7 +226,9 @@ export function Prepare() {
             Language
             <select value={language} onChange={(e) => setLanguage(e.target.value)} disabled={busy}>
               {LANGS.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+                <option key={value} value={value}>
+                  {label}
+                </option>
               ))}
             </select>
           </label>
@@ -193,6 +242,7 @@ export function Prepare() {
             />
           </label>
         </div>
+
         <label className="prepare-toggle">
           <input type="checkbox" checked={useGemini} onChange={(e) => setUseGemini(e.target.checked)} disabled={busy} />
           Plan beats with Gemini
@@ -205,25 +255,37 @@ export function Prepare() {
           <input type="checkbox" checked={useTripo} onChange={(e) => setUseTripo(e.target.checked)} disabled={busy} />
           3D model of each fragment from the same still
         </label>
+
         <div className="prepare-actions">
-          <button type="button" className="primary" disabled={busy} onClick={generate}>
+          <button type="submit" className={embedded ? "g-btn g-btn--blue" : "primary"} disabled={busy}>
             {busy ? "Generating…" : "Generate lesson pack"}
           </button>
-          <span className="prepare-mode">{pack ? `Mode: ${pack.mode}` : "No pack yet"}</span>
+          {showExtras && <span className="prepare-mode">{pack ? `Mode: ${pack.mode}` : "No pack yet"}</span>}
         </div>
-        {busy && (
-          <div className="prepare-progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label="Generation progress">
+
+        {(busy || progress > 0) && (
+          <div
+            className={`prepare-progress${embedded ? " g-prepare__progress" : ""}`}
+            role="progressbar"
+            aria-valuenow={progress}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Generation progress"
+          >
             <div className="prepare-progress-track">
-              <div className="prepare-progress-bar" style={{ width: `${progress}%` }} />
+              <div className="prepare-progress-bar" style={{ width: `${Math.max(progress, busy ? 6 : 0)}%` }} />
             </div>
-            <span>{progress}%</span>
+            <div className="prepare-progress-meta">
+              <span>{busy ? "Building pack…" : progress >= 100 ? "Complete" : "Ready"}</span>
+              <strong>{progress}%</strong>
+            </div>
           </div>
         )}
         {notice && <p className="prepare-notice">{notice}</p>}
         {error && <p className="error">{error}</p>}
-      </section>
+      </form>
 
-      {pack?.pipeline && (
+      {showExtras && pack?.pipeline && (
         <section className="prepare-pipeline">
           <h2>Pipeline</h2>
           <ol>
@@ -234,7 +296,7 @@ export function Prepare() {
         </section>
       )}
 
-      {pack?.beats?.length > 0 && (
+      {showExtras && pack?.beats?.length > 0 && (
         <section className="prepare-pipeline">
           <h2>Beats</h2>
           <ol>
@@ -251,9 +313,11 @@ export function Prepare() {
       {(pack?.mergedVideo?.url || pack?.videos?.length > 0) && (
         <section className="prepare-videos">
           <h2>Lesson video (~{Math.round(pack.videoDurationSec || 16)}s)</h2>
-          <p className="prepare-caption-note">
-            One merged clip (max 16s). Picture, Veo sound, captions, and the woman’s voice stay in sync.
-          </p>
+          {!embedded && (
+            <p className="prepare-caption-note">
+              One merged clip (max 16s). Picture, Veo sound, captions, and the woman&apos;s voice stay in sync.
+            </p>
+          )}
           {pack.mergedVideo?.url ? (
             <div className="prepare-video-row single">
               <ClipPlayer
@@ -277,6 +341,17 @@ export function Prepare() {
               ))}
             </div>
           )}
+          <div className="prepare-share-row">
+            <button
+              type="button"
+              className="g-btn g-btn--pink"
+              disabled={sharingLearning}
+              onClick={shareForLearning}
+            >
+              {sharingLearning ? "Sharing…" : "Share for Learning"}
+            </button>
+            <p className="prepare-share-note">Students see this video under their Learning tab.</p>
+          </div>
           {pack.mergeError && <p className="error">Merge failed: {pack.mergeError}. Showing separate clips.</p>}
           {pack.mergedVideo?.sourceClips?.length > 0 && (
             <p className="prepare-source-clips">
@@ -291,42 +366,54 @@ export function Prepare() {
         </section>
       )}
 
-      <section className="prepare-grid">
-        {(pack?.assets || []).map((asset) => {
-          const stillUrl = asset.sourceImageUrl || asset.previewUrl;
-          return (
-            <article key={asset.id} className="prepare-card">
-              <StillViewer stillUrl={stillUrl} label={asset.label} />
-              {(asset.glbUrl || asset.mesh) && (
-                <AssetViewer mesh={asset.mesh} label={asset.label} glbUrl={asset.glbUrl} />
-              )}
-              <div className="prepare-card-body">
-                <h3>{asset.label}</h3>
-                <p>{asset.reason}</p>
-                <p className="prepare-status">
-                  {asset.glbUrl && stillUrl
-                    ? "Still + 3D ready. Drag the model to turn it."
-                    : asset.glbUrl
-                      ? "3D ready. Drag the model to turn it."
-                      : asset.mesh?.status === "error" || asset.error
-                        ? "Still ready. 3D was not created because Tripo has no credit left."
-                        : stillUrl
-                          ? "Still ready. 3D has not been made yet."
-                          : "Waiting…"}
-                </p>
-                {asset.labels?.length > 0 && (
-                  <ul className="prepare-labels">
-                    {asset.labels.map((l) => (
-                      <li key={l.id}>{l.text}</li>
-                    ))}
-                  </ul>
-                )}
-                <code>{asset.glbUrl || stillUrl || asset.meshUrl}</code>
-              </div>
-            </article>
-          );
-        })}
-      </section>
-    </main>
+      {(pack?.assets || []).length > 0 && (
+        <section className="prepare-grid">
+          <header className="prepare-grid__head">
+            <h2>3D models</h2>
+            <p>Each still sits beside its Tripo model. Drag a model to turn it.</p>
+          </header>
+          <div className="prepare-grid__row">
+            {(pack?.assets || []).map((asset) => {
+              const stillUrl = asset.sourceImageUrl || asset.previewUrl;
+              return (
+                <article key={asset.id} className="prepare-card">
+                  <div className="prepare-card__media">
+                    <StillViewer stillUrl={stillUrl} label={asset.label} />
+                    <AssetViewer mesh={asset.mesh} label={asset.label} glbUrl={asset.glbUrl} />
+                  </div>
+                  <div className="prepare-card-body">
+                    <h3>{asset.label}</h3>
+                    <p>{asset.reason}</p>
+                    <p className="prepare-status">
+                      {asset.glbUrl && stillUrl
+                        ? "Still + 3D ready. Drag the model to turn it."
+                        : asset.glbUrl
+                          ? "3D ready. Drag the model to turn it."
+                          : asset.mesh?.status === "error" || asset.error
+                            ? "Still ready. 3D was not created because Tripo has no credit left."
+                            : stillUrl
+                              ? "Still ready. 3D has not been made yet."
+                              : "Waiting…"}
+                    </p>
+                    {asset.labels?.length > 0 && (
+                      <ul className="prepare-labels">
+                        {asset.labels.map((l) => (
+                          <li key={l.id}>{l.text}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
+    </Root>
   );
+}
+
+/** Standalone /prepare route (kept for testing). */
+export function Prepare() {
+  return <PrepareStudio embedded={false} />;
 }

@@ -5,7 +5,7 @@ import ffmpegPath from "ffmpeg-static";
 export const LESSON_CLIP_SECONDS = 8;
 export const MAX_LESSON_CLIPS = 2;
 export const MERGE_FADE_SECONDS = 0.65;
-export const MERGE_REVISION = 2;
+export const MERGE_REVISION = 3;
 
 function playbackCaptions(captions) {
   const raw = Array.isArray(captions) ? captions : [];
@@ -50,6 +50,7 @@ export function buildMergedVideoMeta(videos, packId, fadeSec = MERGE_FADE_SECOND
     captions: cues,
     sourceClips: clips.map((c) => c.url),
     url: `/generated/${packId}/video/lesson-merged.mp4`,
+    posterUrl: `/generated/${packId}/video/lesson-merged-poster.jpg`,
   };
 }
 
@@ -121,6 +122,10 @@ export async function mergeLessonClips(inputPaths, destPath, { fadeSec = MERGE_F
     "[a]",
     "-c:v",
     "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-profile:v",
+    "high",
     "-preset",
     "fast",
     "-crf",
@@ -140,11 +145,29 @@ export async function mergeLessonClips(inputPaths, destPath, { fadeSec = MERGE_F
   };
 }
 
+async function writeMergedPoster(videoPath, posterPath) {
+  await runFfmpeg([
+    "-y",
+    "-ss",
+    "0.8",
+    "-i",
+    videoPath,
+    "-frames:v",
+    "1",
+    "-update",
+    "1",
+    "-q:v",
+    "3",
+    posterPath,
+  ]);
+}
+
 export async function ensureMergedLessonVideo(pack, { packId, generatedRoot }) {
   if (!pack?.videos || pack.videos.length < 2) return pack;
 
   const videoDir = `${generatedRoot}/${packId}/video`;
   const destPath = `${videoDir}/lesson-merged.mp4`;
+  const posterPath = `${videoDir}/lesson-merged-poster.jpg`;
   let meta = buildMergedVideoMeta(pack.videos, packId);
   if (!meta) return pack;
 
@@ -153,7 +176,14 @@ export async function ensureMergedLessonVideo(pack, { packId, generatedRoot }) {
   if (!needsRemerge) {
     try {
       await fs.access(destPath);
-      meta.url = `/generated/${packId}/video/lesson-merged.mp4?t=${Date.now()}`;
+      try {
+        await fs.access(posterPath);
+      } catch {
+        await writeMergedPoster(destPath, posterPath).catch(() => {});
+      }
+      const stamp = Date.now();
+      meta.url = `/generated/${packId}/video/lesson-merged.mp4?t=${stamp}`;
+      meta.posterUrl = `/generated/${packId}/video/lesson-merged-poster.jpg?t=${stamp}`;
       return { ...pack, mergedVideo: meta, videoDurationSec: meta.durationSeconds };
     } catch {
       /* build below */
@@ -167,10 +197,13 @@ export async function ensureMergedLessonVideo(pack, { packId, generatedRoot }) {
 
   try {
     const info = await mergeLessonClips(clipPaths, destPath);
+    await writeMergedPoster(destPath, posterPath).catch(() => {});
+    const stamp = Date.now();
     meta = {
       ...meta,
       durationSeconds: info.durationSeconds,
-      url: `/generated/${packId}/video/lesson-merged.mp4?t=${Date.now()}`,
+      url: `/generated/${packId}/video/lesson-merged.mp4?t=${stamp}`,
+      posterUrl: `/generated/${packId}/video/lesson-merged-poster.jpg?t=${stamp}`,
     };
     return { ...pack, mergedVideo: meta, videoDurationSec: meta.durationSeconds };
   } catch (err) {

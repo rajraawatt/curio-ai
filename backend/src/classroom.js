@@ -134,11 +134,39 @@ function seedVideoLanguagePlays(baseTime) {
   return rows;
 }
 
-const SEED = [
-  { name: "Aarav", text: "What is this rock made of?", source: "voice", color: "#7c5cff", concept: "Minerals" },
-  { name: "Anaya", text: "How did the mountain become so tall?", source: "text", color: "#ef5da8", concept: "Mountain height" },
-  { name: "Rohan", text: "Why are some rocks black?", source: "text", color: "#1aa37a", concept: "Rock color" },
-];
+function sanitizeSharedLesson(pack) {
+  if (!pack || typeof pack !== "object") return null;
+  const merged = pack.mergedVideo && pack.mergedVideo.url
+    ? {
+        id: String(pack.mergedVideo.id || "merged").slice(0, 80),
+        url: String(pack.mergedVideo.url).slice(0, 500),
+        durationSeconds: Number(pack.mergedVideo.durationSeconds) || null,
+        captions: pack.mergedVideo.captions || null,
+        posterUrl: pack.mergedVideo.posterUrl || null,
+      }
+    : null;
+  const videos = Array.isArray(pack.videos)
+    ? pack.videos
+        .filter((v) => v?.url)
+        .slice(0, 4)
+        .map((v) => ({
+          id: String(v.id || "clip").slice(0, 80),
+          url: String(v.url).slice(0, 500),
+          durationSeconds: Number(v.durationSeconds) || null,
+          captions: v.captions || null,
+        }))
+    : [];
+  if (!merged && !videos.length) return null;
+  return {
+    id: String(pack.id || pack.packId || "pack").slice(0, 80),
+    topic: String(pack.topic || "").slice(0, 120),
+    ageGroup: String(pack.ageGroup || "11-14").slice(0, 20),
+    language: ["en", "hi", "es"].includes(pack.language) ? pack.language : "en",
+    videoDurationSec: Number(pack.videoDurationSec) || merged?.durationSeconds || null,
+    mergedVideo: merged,
+    videos,
+  };
+}
 
 function blank() {
   return {
@@ -146,42 +174,21 @@ function blank() {
     playing: true,
     language: "en",
     lesson: LESSON,
-    questions: SEED.map((q, i) => ({
-      id: `q${i + 1}`,
-      ...q,
-      status: "new",
-      ts: Date.now() - (SEED.length - i) * 60000,
-    })),
+    questions: [],
     hands: [],
+    participants: [],
     selectedId: null,
     transform: null,
     diagram: null,
     veo: null,
+    /** Batch clips planned from teacher-picked questions (placeholder until real API). */
+    aiClips: null,
+    /** Lesson pack currently shared on the live class stage. */
+    liveLesson: null,
+    /** Prepared lesson pack published for student self-paced Learning. */
+    learningLesson: null,
     notice: null,
     analytics: [
-      ...SEED.map((q, i) => ({
-        insert_id: `seed_${i}`,
-        event_time: new Date(Date.now() - (SEED.length - i) * 60000).toISOString(),
-        event_type: "question",
-        student_name: q.name,
-        question: q.text,
-        concept: q.concept,
-        language: "en",
-        source: q.source,
-        mode: "live",
-      })),
-      ...SEED.map((q, i) => ({
-        insert_id: `seed_resp_${i}`,
-        event_time: new Date(Date.now() - (SEED.length - i) * 60000 + 45000).toISOString(),
-        event_type: "teacher_response",
-        student_name: q.name,
-        question: q.text,
-        concept: q.concept,
-        language: "en",
-        source: "teacher",
-        mode: "live",
-        value_num: 38 + i * 14,
-      })),
       ...seedSelfPacedEvents(Date.now()),
       ...seedVideoLanguagePlays(Date.now()),
     ],
@@ -222,12 +229,16 @@ export function publicState() {
     },
     questions: state.questions,
     hands: state.hands,
+    participants: state.participants,
     selectedId: state.selectedId,
     transform: state.transform,
     diagram: state.diagram
       ? { stageIndex: state.diagram.stageIndex, image: state.diagram.image, pending: state.diagram.pending }
       : null,
     veo: state.veo,
+    aiClips: state.aiClips,
+    liveLesson: state.liveLesson,
+    learningLesson: state.learningLesson,
     notice: state.notice,
     analytics: state.analytics.slice(-80),
     analyticsDigest: buildAnalyticsDigest({
@@ -240,6 +251,90 @@ export function publicState() {
     engine: engineMode(),
     room: "CURIO",
   };
+}
+
+/**
+ * Placeholder: collapse many student questions into a few answer clips.
+ * TODO: replace body with real Gemini cluster + Veo/TTS prepare API.
+ */
+function planClipsFromQuestionsPlaceholder(questions) {
+  // --- PLACEHOLDER FOR API CALL ---
+  // await callPrepareClipsFromQuestions(questions)
+  // --- END PLACEHOLDER ---
+
+  const byConcept = new Map();
+  for (const q of questions) {
+    const key = String(q.concept || "General").trim() || "General";
+    if (!byConcept.has(key)) byConcept.set(key, []);
+    byConcept.get(key).push(q);
+  }
+
+  let groups = [...byConcept.entries()].map(([concept, qs]) => ({ concept, questions: qs }));
+  // Prefer at most 3 clips for the whole batch (e.g. 10 questions → 3 clips).
+  const maxClips = Math.min(3, Math.max(1, questions.length));
+  while (groups.length > maxClips) {
+    const last = groups.pop();
+    groups[groups.length - 1].questions.push(...last.questions);
+    groups[groups.length - 1].concept = `${groups[groups.length - 1].concept} + more`;
+  }
+
+  return groups.map((group, index) => {
+    const ids = group.questions.map((q) => q.id);
+    const titles = group.questions.map((q) => q.text);
+    return {
+      id: `ai_clip_${Date.now()}_${index + 1}`,
+      title: group.concept,
+      summary: `Covers ${group.questions.length} question(s): ${titles.slice(0, 2).join(" · ")}${titles.length > 2 ? "…" : ""}`,
+      coversQuestionIds: ids,
+      coversTexts: titles,
+      durationSeconds: 8,
+      status: "ready",
+      // Real pack would set url / stillUrl / narration after generation.
+      url: null,
+      narration: `Narration for: ${group.concept}.`,
+      note: "Clip draft from selected questions.",
+    };
+  });
+}
+
+async function generateAiClipsFromPicks(questionIds) {
+  const ids = Array.isArray(questionIds) ? questionIds.map(String) : [];
+  const picked = state.questions.filter((q) => ids.includes(q.id));
+  if (!picked.length) {
+    const error = new Error("Pick at least one question before sending to AI");
+    error.status = 400;
+    throw error;
+  }
+
+  state.aiClips = {
+    status: "planning",
+    showing: false,
+    sourceQuestionIds: picked.map((q) => q.id),
+    sourceCount: picked.length,
+    clips: [],
+    createdAt: new Date().toISOString(),
+  };
+  state.notice = `Planning answer clips from ${picked.length} selected question(s)…`;
+  broadcast();
+
+  // Simulated short planning beat — still no external API.
+  await new Promise((r) => setTimeout(r, 400));
+
+  const clips = planClipsFromQuestionsPlaceholder(picked);
+  state.aiClips = {
+    status: "ready",
+    showing: false,
+    sourceQuestionIds: picked.map((q) => q.id),
+    sourceCount: picked.length,
+    clips,
+    createdAt: new Date().toISOString(),
+  };
+  state.notice = `AI planned ${clips.length} clip(s) from ${picked.length} questions.`;
+  log("ai_clips_planned", {
+    question: `${picked.length}→${clips.length}`,
+    concept: clips.map((c) => c.title).join(", "),
+    source: "ai_clips",
+  });
 }
 
 function log(eventType, extra = {}) {
@@ -328,17 +423,19 @@ export function addQuestion({ name, text, source, region }) {
     existing.ts = Date.now();
     existing.source = source || existing.source;
     if (safeRegion) existing.region = safeRegion;
+    upsertParticipant(student, { source: "question" });
     log("question_repeat", { student_name: student, question: clean, concept: existing.concept, source });
     broadcast();
     return existing;
   }
   const plan = matchPlan(clean);
+  const participant = upsertParticipant(student, { source: "question" });
   const question = {
     id: `q${seq++}`,
     name: student,
     text: clean,
     source: source || "text",
-    color: ["#7c5cff", "#ef5da8", "#1aa37a", "#3b82f6", "#f59e0b"][state.questions.length % 5],
+    color: participant.color,
     concept: plan?.concept || "Open curiosity",
     status: "new",
     ts: Date.now(),
@@ -374,8 +471,31 @@ function normalizeRegion(region) {
   };
 }
 
+const PARTICIPANT_COLORS = ["#7C3AED", "#EC4899", "#4285F4", "#34A853", "#F59E0B", "#EF476F"];
+
+function upsertParticipant(name, { source = "join" } = {}) {
+  const student = String(name || "Student").trim().slice(0, 40) || "Student";
+  const existing = state.participants.find((p) => p.name.toLowerCase() === student.toLowerCase());
+  if (existing) {
+    existing.lastSeenAt = Date.now();
+    return existing;
+  }
+  const participant = {
+    id: `p_${Date.now()}_${seq}`,
+    name: student,
+    color: PARTICIPANT_COLORS[state.participants.length % PARTICIPANT_COLORS.length],
+    joinedAt: Date.now(),
+    lastSeenAt: Date.now(),
+    source,
+  };
+  state.participants.push(participant);
+  if (state.participants.length > 80) state.participants.shift();
+  return participant;
+}
+
 export function raiseHand(name, up = true) {
   const student = String(name || "Student").trim().slice(0, 40) || "Student";
+  upsertParticipant(student, { source: "hand" });
   state.hands = state.hands.filter((h) => h.name !== student);
   if (up) state.hands.push({ name: student, ts: Date.now() });
   log(up ? "raise_hand" : "lower_hand", { student_name: student });
@@ -561,6 +681,20 @@ export async function control(action, payload = {}) {
       raiseHand(payload.name, payload.up !== false);
       return publicState();
     }
+    case "join": {
+      upsertParticipant(payload.name, { source: "join" });
+      log("join", { student_name: String(payload.name || "Student").trim() });
+      broadcast();
+      return publicState();
+    }
+    case "leave": {
+      const student = String(payload.name || "Student").trim().slice(0, 40) || "Student";
+      state.participants = state.participants.filter((p) => p.name.toLowerCase() !== student.toLowerCase());
+      state.hands = state.hands.filter((h) => h.name.toLowerCase() !== student.toLowerCase());
+      log("leave", { student_name: student });
+      broadcast();
+      return publicState();
+    }
     case "diagram": {
       state.diagram = { stageIndex: state.transform?.index ?? 0, image: payload.image || null, pending: Boolean(payload.pending) };
       if (payload.notice) state.notice = payload.notice;
@@ -573,6 +707,63 @@ export async function control(action, payload = {}) {
     case "veo": {
       state.veo = payload.veo || null;
       if (payload.notice) state.notice = payload.notice;
+      break;
+    }
+    case "generateAiClips": {
+      await generateAiClipsFromPicks(payload.questionIds || []);
+      return publicState();
+    }
+    case "showAiClips": {
+      if (!state.aiClips?.clips?.length) {
+        const error = new Error("No AI clips ready to show");
+        error.status = 400;
+        throw error;
+      }
+      state.aiClips = { ...state.aiClips, showing: true, status: "showing" };
+      state.playing = false;
+      state.notice = `Showing ${state.aiClips.clips.length} AI clip(s) to the class.`;
+      log("ai_clips_show", {
+        question: String(state.aiClips.sourceCount || 0),
+        concept: state.aiClips.clips.map((c) => c.title).join(", "),
+      });
+      break;
+    }
+    case "hideAiClips": {
+      if (state.aiClips) {
+        state.aiClips = { ...state.aiClips, showing: false, status: "ready" };
+      }
+      state.notice = "Back to the live lesson.";
+      break;
+    }
+    case "clearAiClips": {
+      state.aiClips = null;
+      state.notice = null;
+      break;
+    }
+    case "setLiveLesson": {
+      state.liveLesson = sanitizeSharedLesson(payload.pack || payload.lesson);
+      state.notice = state.liveLesson
+        ? `Live class video: ${state.liveLesson.topic || "Prepared lesson"}`
+        : null;
+      log("live_lesson", { question: state.liveLesson?.topic || "", source: "teacher" });
+      break;
+    }
+    case "clearLiveLesson": {
+      state.liveLesson = null;
+      state.notice = "Live class video cleared.";
+      break;
+    }
+    case "setLearningLesson": {
+      state.learningLesson = sanitizeSharedLesson(payload.pack || payload.lesson);
+      state.notice = state.learningLesson
+        ? `Learning unlocked: ${state.learningLesson.topic || "Prepared lesson"}`
+        : null;
+      log("learning_lesson", { question: state.learningLesson?.topic || "", source: "teacher" });
+      break;
+    }
+    case "clearLearningLesson": {
+      state.learningLesson = null;
+      state.notice = "Learning video cleared.";
       break;
     }
     case "reset": {

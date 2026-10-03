@@ -1,13 +1,6 @@
 import { useEffect, useState } from "react";
 import { useClassroom } from "./useClassroom.js";
 
-const STEPS = [
-  ["Teacher opens the world", "The class enters one shared mountain lesson."],
-  ["Students ask", "Voice or text, from a phone or a classroom mic."],
-  ["Teacher chooses", "CURIO does not take the lesson away."],
-  ["The world answers", "The scene itself changes, then the class returns."],
-];
-
 export function Lobby() {
   const { state, connected } = useClassroom();
   const [name, setName] = useState("Aarav");
@@ -21,80 +14,57 @@ export function Lobby() {
   }, []);
 
   const engine = health?.engine || state?.engine || "lesson-scripts";
-  const engineLabel =
-    engine === "vertex"
-      ? "Gemini on Vertex AI"
-      : engine === "gemini-api-key"
-        ? "Gemini API"
-        : "Lesson scenes ready";
+  const engineLive = engine !== "lesson-scripts";
 
   return (
-    <main className="lobby">
-      <header className="lobby-bar">
+    <main className="g-lobby">
+      <div className="g-lobby__glow" aria-hidden="true" />
+
+      <header className="g-lobby__bar">
         <Wordmark />
-        <span className={connected ? "dot on" : "dot"}>{connected ? "Classroom live" : "Connecting"}</span>
+        <span className={`g-lobby__status${connected ? " is-on" : ""}`}>
+          {connected ? "Classroom live" : "Connecting"}
+        </span>
       </header>
 
-      <section className="hero">
-        <p className="kicker">Media, digital experience, entertainment</p>
-        <h1>
-          What if a student's question could change the world the entire class is learning in?
-        </h1>
-        <p className="lede">
-          CURIO turns a lesson into a shared cinematic world. Students ask in their own words.
-          The teacher chooses what to explore. The scene transforms to explain it, then the class returns to the lesson.
+      <section className="g-lobby__hero">
+        <p className="g-lobby__brand">CURIO</p>
+        <h1>One shared lesson. Curiosity changes the view.</h1>
+        <p className="g-lobby__lede">
+          Students ask. The teacher chooses. The class sees the answer unfold together.
         </p>
-        <div className="doors">
-          <a className="door teacher" href="/teacher">
-            <span>Teacher</span>
-            <strong>Lead the lesson</strong>
-            <em>Pause, choose a question, transform the world, resume.</em>
-          </a>
-          <article className="door student">
-            <span>Student</span>
-            <strong>Ask into the world</strong>
-            <em>Use another device, a phone, or a second window.</em>
+        {engineLive && <p className="g-lobby__engine">{engine === "vertex" ? "Gemini on Vertex AI" : "Gemini API"} ready</p>}
+      </section>
+
+      <section className="g-lobby__doors" aria-label="Enter the classroom">
+        <a className="g-lobby__door g-lobby__door--teacher" href="/teacher">
+          <span className="g-lobby__door-kicker">Teacher</span>
+          <strong>Lead the lesson</strong>
+          <em>Pause, pick a question, explore with the class.</em>
+        </a>
+
+        <article className="g-lobby__door g-lobby__door--student">
+          <span className="g-lobby__door-kicker">Student</span>
+          <strong>Ask into the world</strong>
+          <em>Join from another device or window.</em>
+          <label className="g-lobby__name">
+            Your name
             <input
               value={name}
               aria-label="Student name"
               onChange={(event) => setName(event.target.value)}
             />
-            <a href={`/student?name=${encodeURIComponent(name || "Student")}`}>Join as {name || "Student"}</a>
-          </article>
-          <a className="door prepare" href="/prepare">
-            <span>Studio</span>
-            <strong>Prepare assets</strong>
-            <em>Topic, age, and language for the video you will show next class.</em>
+          </label>
+          <a className="g-lobby__join" href={`/student?name=${encodeURIComponent(name || "Student")}`}>
+            Join as {name || "Student"}
           </a>
-        </div>
-      </section>
+        </article>
 
-      <section className="flow">
-        {STEPS.map(([title, copy], index) => (
-          <article key={title}>
-            <b>{index + 1}</b>
-            <h2>{title}</h2>
-            <p>{copy}</p>
-          </article>
-        ))}
-      </section>
-
-      <section className="stack">
-        <div>
-          <h2>Two rooms, one world</h2>
-          <p>
-            On a projector, the teacher screen is the room. In a video class, students join from their own devices.
-            The controls are the same: the teacher decides when the world changes.
-          </p>
-        </div>
-        <ul>
-          <li className={engine === "lesson-scripts" ? "" : "ready"}>{engineLabel}</li>
-          <li>Scene engine for the live transformation</li>
-          <li>Speech in the browser, Cloud Text-to-Speech when configured</li>
-          <li>Imagen diagrams and Veo clips on demand</li>
-          <li>BigQuery curiosity analytics</li>
-          <li>English, Hindi, and Spanish</li>
-        </ul>
+        <a className="g-lobby__door g-lobby__door--studio" href="/prepare">
+          <span className="g-lobby__door-kicker">Studio</span>
+          <strong>Prepare assets</strong>
+          <em>Build the lesson video and 3D pack before class.</em>
+        </a>
       </section>
     </main>
   );

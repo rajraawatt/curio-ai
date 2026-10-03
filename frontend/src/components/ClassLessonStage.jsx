@@ -2,11 +2,24 @@ import { clipAnalyticsMeta } from "../clipAnalyticsMeta.js";
 import { LessonClipPlayer } from "./LessonClipPlayer.jsx";
 
 export function stageClipFromPack(pack) {
-  if (!pack?.mergedVideo?.url) return null;
-  return pack.mergedVideo;
+  if (pack?.mergedVideo?.url) return pack.mergedVideo;
+  if (Array.isArray(pack?.videos)) {
+    return pack.videos.find((clip) => clip?.url) || null;
+  }
+  return null;
 }
 
-export function ClassLessonStage({ pack, language, captions, playing, onClear }) {
+export function ClassLessonStage({
+  pack,
+  language,
+  captions,
+  playing,
+  onClear,
+  readOnly = false,
+  kicker = "Prepared lesson",
+  trackMode = "live",
+  trackAs = "Teacher desk",
+}) {
   const raw = stageClipFromPack(pack);
   if (!raw) return null;
   const clip = clipAnalyticsMeta(raw, pack);
@@ -17,12 +30,14 @@ export function ClassLessonStage({ pack, language, captions, playing, onClear })
     <div className="class-stage" aria-label="Lesson stage">
       <header className="class-stage-head">
         <div>
-          <p className="stage-empty-kicker">Prepared lesson</p>
+          <p className="stage-empty-kicker">{kicker}</p>
           <h2>{title}</h2>
         </div>
-        <button type="button" className="class-stage-clear" onClick={onClear}>
-          Clear
-        </button>
+        {!readOnly && onClear && (
+          <button type="button" className="class-stage-clear" onClick={onClear}>
+            Clear
+          </button>
+        )}
       </header>
       <LessonClipPlayer
         clip={clip}
@@ -31,8 +46,8 @@ export function ClassLessonStage({ pack, language, captions, playing, onClear })
         captions={captions}
         playing={playing}
         compact
-        trackMode="live"
-        trackAs="Teacher desk"
+        trackMode={trackMode}
+        trackAs={trackAs}
       />
     </div>
   );

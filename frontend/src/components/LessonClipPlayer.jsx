@@ -76,6 +76,7 @@ export function LessonClipPlayer({
   const dueIndex = cueIndex(cues, time);
   const line = cueText(cues[reading >= 0 ? reading : dueIndex], lang);
   const src = clip.url.split("?")[0];
+  const poster = clip.posterUrl ? String(clip.posterUrl).split("?")[0] : undefined;
   const startNextRef = useRef(() => {});
 
   startNextRef.current = (video) => {
@@ -165,6 +166,7 @@ export function LessonClipPlayer({
           ref={videoRef}
           key={clip.url}
           src={src}
+          poster={poster}
           controls
           playsInline
           preload="metadata"
