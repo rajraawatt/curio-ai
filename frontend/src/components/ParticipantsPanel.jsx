@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { cx, noScrollbar } from "../ui.js";
 
 const TILE_COLORS = ["#7C3AED", "#EC4899", "#C4B5FD", "#F9A8D4", "#A78BFA", "#DB2777"];
 
@@ -33,28 +34,50 @@ export function ParticipantsPopover({ state, open, onClose }) {
   if (!open) return null;
 
   return (
-    <div className="g-people-pop" role="dialog" aria-label="Participants">
-      <header className="g-people-pop__header">
-        <div className="g-people-pop__title">
-          <strong>Participants</strong>
-          <span className="g-people-pop__count">{total}</span>
-          {handsUp > 0 && <span className="g-people-pop__hands">{handsUp} hand{handsUp === 1 ? "" : "s"}</span>}
+    <div
+      className="absolute bottom-[calc(100%+12px)] left-1/2 z-40 flex max-h-[280px] w-[260px] -translate-x-1/2 flex-col overflow-hidden rounded-[22px] border-2 border-line bg-white shadow-[0_14px_28px_rgba(31,41,55,0.14)]"
+      role="dialog"
+      aria-label="Participants"
+    >
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b-2 border-cream-deep px-3 pt-3 pb-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <strong className="text-[0.9rem] font-extrabold text-ink">Participants</strong>
+          <span className="rounded-full bg-violet px-2 py-0.5 text-[11px] font-extrabold text-white">{total}</span>
+          {handsUp > 0 && (
+            <span className="rounded-full bg-pink-soft px-2 py-0.5 text-[10px] font-extrabold text-pink">
+              {handsUp} hand{handsUp === 1 ? "" : "s"}
+            </span>
+          )}
         </div>
-        <button type="button" className="g-people-pop__close" title="Close" onClick={onClose}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
+        <button
+          type="button"
+          className="grid size-7 place-items-center rounded-full border-0 bg-violet-soft text-violet"
+          title="Close"
+          onClick={onClose}
+        >
+          <svg className="size-3.5 fill-none stroke-current stroke-[2.5] [stroke-linecap:round]" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
       </header>
-      <div className="g-people-pop__list no-scrollbar">
-        {total === 0 && <p className="g-people-pop__empty">No students joined yet</p>}
+      <div className={cx("flex min-h-0 flex-col gap-1.5 overflow-y-auto p-2", noScrollbar)}>
+        {total === 0 && <p className="my-3 text-center text-[0.78rem] font-bold text-muted">No students joined yet</p>}
         {participants.map((person) => (
-          <article key={person.id || person.name} className={`g-people-pop__row${person.handUp ? " has-hand" : ""}`}>
-            <span className="g-people-pop__avatar" style={{ background: person.color || TILE_COLORS[0] }}>
+          <article
+            key={person.id || person.name}
+            className={cx(
+              "grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2 rounded-[14px] border p-2",
+              person.handUp ? "border-[rgba(236,72,153,0.3)] bg-[#FFF7FB]" : "border-line bg-[#FBF8F3]"
+            )}
+          >
+            <span
+              className="grid size-8 place-items-center rounded-full text-[0.65rem] font-extrabold text-white"
+              style={{ background: person.color || TILE_COLORS[0] }}
+            >
               {String(person.name || "?").slice(0, 2).toUpperCase()}
             </span>
-            <span className="g-people-pop__name">{person.name}</span>
-            {person.handUp && <span className="g-people-pop__hand">Hand up</span>}
+            <span className="truncate text-[0.8rem] font-extrabold text-ink">{person.name}</span>
+            {person.handUp && <span className="text-[0.65rem] font-extrabold text-pink">Hand up</span>}
           </article>
         ))}
       </div>

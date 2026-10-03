@@ -1,3 +1,4 @@
+import { getLearningPublicState, setGalleryChangeListener } from "./gallery.js";
 import { buildAnalyticsDigest } from "./analyticsDigest.js";
 import { LESSON, matchPlan, fallbackPlan, planningHold, normalizePlan, textOf } from "./lesson.js";
 import { engineMode, geminiGenerate, insertAnalytics } from "./gcp.js";
@@ -139,6 +140,7 @@ function sanitizeSharedLesson(pack) {
   const merged = pack.mergedVideo && pack.mergedVideo.url
     ? {
         id: String(pack.mergedVideo.id || "merged").slice(0, 80),
+        merged: Boolean(pack.mergedVideo.merged ?? true),
         url: String(pack.mergedVideo.url).slice(0, 500),
         durationSeconds: Number(pack.mergedVideo.durationSeconds) || null,
         captions: pack.mergedVideo.captions || null,
@@ -151,20 +153,39 @@ function sanitizeSharedLesson(pack) {
         .slice(0, 4)
         .map((v) => ({
           id: String(v.id || "clip").slice(0, 80),
+          title: String(v.title || "").slice(0, 120),
           url: String(v.url).slice(0, 500),
           durationSeconds: Number(v.durationSeconds) || null,
           captions: v.captions || null,
         }))
     : [];
-  if (!merged && !videos.length) return null;
+  const assets = Array.isArray(pack.assets)
+    ? pack.assets.slice(0, 8).map((asset) => ({
+        id: String(asset.id || "asset").slice(0, 80),
+        label: String(asset.label || asset.id || "Asset").slice(0, 80),
+        reason: String(asset.reason || "").slice(0, 200),
+        color: asset.color || null,
+        labels: Array.isArray(asset.labels) ? asset.labels.slice(0, 6) : [],
+        previewUrl: asset.previewUrl || null,
+        sourceImageUrl: asset.sourceImageUrl || asset.previewUrl || null,
+        meshUrl: asset.meshUrl || null,
+        glbUrl: asset.glbUrl || null,
+        mesh: asset.mesh || null,
+      }))
+    : [];
+  if (!merged && !videos.length && !assets.length) return null;
   return {
     id: String(pack.id || pack.packId || "pack").slice(0, 80),
+    packId: pack.packId || pack.id || null,
+    classId: pack.classId || null,
+    subjectId: pack.subjectId || null,
     topic: String(pack.topic || "").slice(0, 120),
     ageGroup: String(pack.ageGroup || "11-14").slice(0, 20),
     language: ["en", "hi", "es"].includes(pack.language) ? pack.language : "en",
     videoDurationSec: Number(pack.videoDurationSec) || merged?.durationSeconds || null,
     mergedVideo: merged,
     videos,
+    assets,
   };
 }
 
@@ -209,6 +230,14 @@ function broadcast() {
   for (const fn of listeners) fn(snapshot);
 }
 
+export function requestBroadcast() {
+  broadcast();
+}
+
+setGalleryChangeListener(() => {
+  broadcast();
+});
+
 export function subscribe(fn) {
   listeners.add(fn);
   fn(publicState());
@@ -216,6 +245,7 @@ export function subscribe(fn) {
 }
 
 export function publicState() {
+  const learning = getLearningPublicState();
   return {
     phase: state.phase,
     playing: state.playing,
@@ -239,6 +269,8 @@ export function publicState() {
     aiClips: state.aiClips,
     liveLesson: state.liveLesson,
     learningLesson: state.learningLesson,
+    learningByClass: learning.learningByClass,
+    galleryRevision: learning.galleryRevision,
     notice: state.notice,
     analytics: state.analytics.slice(-80),
     analyticsDigest: buildAnalyticsDigest({

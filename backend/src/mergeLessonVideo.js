@@ -1,11 +1,17 @@
 import { spawn } from "child_process";
 import fs from "fs/promises";
+import path from "path";
 import ffmpegPath from "ffmpeg-static";
 
 export const LESSON_CLIP_SECONDS = 8;
 export const MAX_LESSON_CLIPS = 2;
 export const MERGE_FADE_SECONDS = 0.65;
-export const MERGE_REVISION = 3;
+/** Bump when encode flags change so stale/corrupt merges are rebuilt. */
+export const MERGE_REVISION = 4;
+
+const MERGE_WIDTH = 1280;
+const MERGE_HEIGHT = 720;
+const MERGE_FPS = 24;
 
 function playbackCaptions(captions) {
   const raw = Array.isArray(captions) ? captions : [];
@@ -89,7 +95,17 @@ function runFfmpeg(args) {
   });
 }
 
-/** Crossfade two 8s clips into one ~15.4s MP4 (video + embedded Veo audio). */
+function normalizeVideoFilter(labelIn, labelOut) {
+  return (
+    `[${labelIn}:v]scale=${MERGE_WIDTH}:${MERGE_HEIGHT}:force_original_aspect_ratio=decrease,` +
+    `pad=${MERGE_WIDTH}:${MERGE_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${MERGE_FPS},format=yuv420p[${labelOut}]`
+  );
+}
+
+/**
+ * Crossfade two ~8s clips into one browser-safe MP4.
+ * Writes to a temp file then renames so browsers never see a half-written/corrupt file.
+ */
 export async function mergeLessonClips(inputPaths, destPath, { fadeSec = MERGE_FADE_SECONDS } = {}) {
   if (inputPaths.length !== 2) {
     throw new Error("Lesson merge expects exactly 2 clips (~16s total)");
@@ -99,45 +115,65 @@ export async function mergeLessonClips(inputPaths, destPath, { fadeSec = MERGE_F
   }
   const dur0 = await probeMediaDurationSeconds(inputPaths[0]);
   const dur1 = await probeMediaDurationSeconds(inputPaths[1]);
-  const offset = Math.max(0, dur0 - fadeSec);
+  const offset = Math.max(0, Math.min(dur0 - 0.05, dur0 - fadeSec));
   const delayMs = Math.round(offset * 1000);
   const durationSeconds = dur0 + dur1 - fadeSec;
   const filter = [
-    `[0:v][1:v]xfade=transition=fade:duration=${fadeSec}:offset=${offset}[v]`,
-    `[0:a]afade=t=out:st=${offset}:d=${fadeSec}[a0]`,
-    `[1:a]afade=t=in:st=0:d=${fadeSec},adelay=${delayMs}|${delayMs}[a1]`,
+    normalizeVideoFilter(0, "v0"),
+    normalizeVideoFilter(1, "v1"),
+    `[v0][v1]xfade=transition=fade:duration=${fadeSec}:offset=${offset}[v]`,
+    `[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=out:st=${offset}:d=${fadeSec}[a0]`,
+    `[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=${fadeSec},adelay=${delayMs}|${delayMs}[a1]`,
     `[a0][a1]amix=inputs=2:duration=longest:dropout_transition=0[a]`,
   ].join(";");
-  await runFfmpeg([
-    "-y",
-    "-i",
-    inputPaths[0],
-    "-i",
-    inputPaths[1],
-    "-filter_complex",
-    filter,
-    "-map",
-    "[v]",
-    "-map",
-    "[a]",
-    "-c:v",
-    "libx264",
-    "-pix_fmt",
-    "yuv420p",
-    "-profile:v",
-    "high",
-    "-preset",
-    "fast",
-    "-crf",
-    "20",
-    "-c:a",
-    "aac",
-    "-b:a",
-    "192k",
-    "-movflags",
-    "+faststart",
-    destPath,
-  ]);
+
+  const dir = path.dirname(destPath);
+  await fs.mkdir(dir, { recursive: true });
+  const tmpPath = path.join(dir, `.lesson-merged.${process.pid}.${Date.now()}.tmp.mp4`);
+
+  try {
+    await runFfmpeg([
+      "-y",
+      "-i",
+      inputPaths[0],
+      "-i",
+      inputPaths[1],
+      "-filter_complex",
+      filter,
+      "-map",
+      "[v]",
+      "-map",
+      "[a]",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-profile:v",
+      "main",
+      "-level",
+      "4.0",
+      "-preset",
+      "fast",
+      "-crf",
+      "20",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-ac",
+      "2",
+      "-ar",
+      "48000",
+      "-movflags",
+      "+faststart",
+      tmpPath,
+    ]);
+    await fs.rename(tmpPath, destPath);
+  } catch (err) {
+    await fs.unlink(tmpPath).catch(() => {});
+    throw err;
+  }
+
   return {
     durationSeconds,
     fadeSeconds: fadeSec,
@@ -145,21 +181,28 @@ export async function mergeLessonClips(inputPaths, destPath, { fadeSec = MERGE_F
   };
 }
 
-async function writeMergedPoster(videoPath, posterPath) {
-  await runFfmpeg([
-    "-y",
-    "-ss",
-    "0.8",
-    "-i",
-    videoPath,
-    "-frames:v",
-    "1",
-    "-update",
-    "1",
-    "-q:v",
-    "3",
-    posterPath,
-  ]);
+export async function writeMergedPoster(videoPath, posterPath) {
+  const tmpPoster = `${posterPath}.tmp.jpg`;
+  try {
+    await runFfmpeg([
+      "-y",
+      "-ss",
+      "0.8",
+      "-i",
+      videoPath,
+      "-frames:v",
+      "1",
+      "-update",
+      "1",
+      "-q:v",
+      "3",
+      tmpPoster,
+    ]);
+    await fs.rename(tmpPoster, posterPath);
+  } catch (err) {
+    await fs.unlink(tmpPoster).catch(() => {});
+    throw err;
+  }
 }
 
 export async function ensureMergedLessonVideo(pack, { packId, generatedRoot }) {
@@ -171,27 +214,36 @@ export async function ensureMergedLessonVideo(pack, { packId, generatedRoot }) {
   let meta = buildMergedVideoMeta(pack.videos, packId);
   if (!meta) return pack;
 
+  const previous = pack.mergedVideo || null;
+  const fileExists = await fs.access(destPath).then(() => true).catch(() => false);
   const needsRemerge =
-    pack.mergedVideo?.mergeRevision !== MERGE_REVISION || pack.mergedVideo?.mergeRevision == null;
-  if (!needsRemerge) {
+    !fileExists ||
+    previous?.mergeRevision !== MERGE_REVISION ||
+    previous?.mergeRevision == null;
+
+  // Fast path: good file already on disk — never remux on ordinary page loads.
+  if (fileExists && !needsRemerge) {
     try {
-      await fs.access(destPath);
-      try {
-        await fs.access(posterPath);
-      } catch {
-        await writeMergedPoster(destPath, posterPath).catch(() => {});
-      }
-      const stamp = Date.now();
-      meta.url = `/generated/${packId}/video/lesson-merged.mp4?t=${stamp}`;
-      meta.posterUrl = `/generated/${packId}/video/lesson-merged-poster.jpg?t=${stamp}`;
-      return { ...pack, mergedVideo: meta, videoDurationSec: meta.durationSeconds };
+      await fs.access(posterPath);
     } catch {
-      /* build below */
+      await writeMergedPoster(destPath, posterPath).catch(() => {});
     }
+    const stamp = Date.now();
+    return {
+      ...pack,
+      mergedVideo: {
+        ...previous,
+        ...meta,
+        url: `/generated/${packId}/video/lesson-merged.mp4?t=${stamp}`,
+        posterUrl: `/generated/${packId}/video/lesson-merged-poster.jpg?t=${stamp}`,
+      },
+      videoDurationSec: previous?.durationSeconds || meta.durationSeconds,
+      mergeError: undefined,
+    };
   }
 
   const clipPaths = pack.videos.slice(0, MAX_LESSON_CLIPS).map((clip) => {
-    const name = clip.url.split("/").pop().split("?")[0];
+    const name = String(clip.url || "").split("/").pop().split("?")[0];
     return `${videoDir}/${name}`;
   });
 
@@ -205,8 +257,13 @@ export async function ensureMergedLessonVideo(pack, { packId, generatedRoot }) {
       url: `/generated/${packId}/video/lesson-merged.mp4?t=${stamp}`,
       posterUrl: `/generated/${packId}/video/lesson-merged-poster.jpg?t=${stamp}`,
     };
-    return { ...pack, mergedVideo: meta, videoDurationSec: meta.durationSeconds };
+    return { ...pack, mergedVideo: meta, videoDurationSec: meta.durationSeconds, mergeError: undefined };
   } catch (err) {
-    return { ...pack, mergedVideo: null, mergeError: err.message };
+    // Never wipe a previously good mergedVideo — page refresh must keep content.
+    return {
+      ...pack,
+      mergedVideo: previous?.url ? previous : pack.mergedVideo,
+      mergeError: err.message,
+    };
   }
 }

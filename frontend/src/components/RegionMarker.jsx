@@ -105,18 +105,27 @@ export function RegionMarker({ src, alt = "Lesson frame", selection, onSelect, o
   const active = draft || selection;
 
   return (
-    <div className="region-marker">
-      <div className="region-marker-toolbar">
+    <div className="grid gap-2 font-[Nunito,sans-serif]">
+      <div className="flex items-center justify-between gap-3 text-[0.82rem] text-[#6B7280]">
         <span>{ready ? hint : "Loading lesson frame…"}</span>
         {selection && (
-          <button type="button" onClick={() => { onClear?.(); setHint("Drag on the image to mark what you are asking about"); }}>
+          <button
+            type="button"
+            className="rounded-full border border-[#C4B5FD] bg-[#EDE4FF] px-3 py-1.5 text-[0.78rem] font-bold text-[#7C3AED]"
+            onClick={() => {
+              onClear?.();
+              setHint("Drag on the image to mark what you are asking about");
+            }}
+          >
             Clear mark
           </button>
         )}
       </div>
       <div
         ref={frameRef}
-        className={`region-marker-frame ${ready ? "" : "is-loading"}`}
+        className={`relative min-h-[42vh] cursor-crosshair touch-none select-none overflow-hidden rounded-xl border-2 border-[#F0EAE0] bg-black ${
+          ready ? "" : "opacity-80"
+        }`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -130,11 +139,14 @@ export function RegionMarker({ src, alt = "Lesson frame", selection, onSelect, o
           src={src}
           alt={alt}
           draggable={false}
+          className="pointer-events-none block h-full min-h-[42vh] w-full object-cover"
           onLoad={() => setReady(true)}
         />
         {active && (
           <div
-            className={`region-box ${draft ? "drawing" : "selected"}`}
+            className={`pointer-events-none absolute rounded border-2 border-[#7C3AED] shadow-[0_0_0_9999px_rgba(31,41,55,0.45)] ${
+              draft ? "bg-[#7C3AED]/20" : "bg-[#7C3AED]/30"
+            }`}
             style={{
               left: `${active.x * 100}%`,
               top: `${active.y * 100}%`,

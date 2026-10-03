@@ -16,6 +16,7 @@ import {
   buildMergedVideoMeta,
   ensureMergedLessonVideo,
   mergeLessonClips,
+  writeMergedPoster,
 } from "./mergeLessonVideo.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -95,6 +96,71 @@ async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
 
+/** Strip fences / extract object, then repair common truncation from MAX_TOKENS. */
+function parseModelJson(raw) {
+  let text = String(raw || "").trim();
+  text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start >= 0 && end > start) text = text.slice(start, end + 1);
+  text = text.replace(/,\s*([}\]])/g, "$1");
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return JSON.parse(repairTruncatedJson(text));
+  }
+}
+
+function repairTruncatedJson(text) {
+  let s = String(text || "");
+  // Close an unfinished string value.
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (c === "\\" && inString) {
+      escape = true;
+      continue;
+    }
+    if (c === '"') inString = !inString;
+  }
+  if (inString) s += '"';
+
+  // Drop a dangling comma after the last complete value.
+  s = s.replace(/,\s*$/g, "");
+
+  const stack = [];
+  inString = false;
+  escape = false;
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (c === "\\" && inString) {
+      escape = true;
+      continue;
+    }
+    if (c === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (c === "{" || c === "[") stack.push(c);
+    if (c === "}" || c === "]") stack.pop();
+  }
+  while (stack.length) {
+    s += stack.pop() === "{" ? "}" : "]";
+  }
+  return s.replace(/,\s*([}\]])/g, "$1");
+}
+
 function normalizePlan(parsed, objectLimit = 2) {
   const fallback = FALLBACK_PLAN;
   const rawObjects = Array.isArray(parsed?.objects) ? parsed.objects : fallback.objects;
@@ -156,26 +222,27 @@ function normalizePlan(parsed, objectLimit = 2) {
 
 async function planLessonWithGemini(teacherPrompt, objectLimit) {
   const prompt = `You are planning a short classroom video lesson (~15 seconds total) plus interactive 3D assets.
+Keep every string SHORT so the JSON stays under ~3k characters.
 
 Teacher prompt:
 """
 ${teacherPrompt}
 """
 
-Return JSON only:
+Return JSON only (no markdown):
 {
   "beats": [
     {
       "id": "snake_case",
       "title": "short title",
-      "narration": { "en": "one sentence", "hi": "एक वाक्य", "es": "una oración" },
+      "narration": { "en": "one short sentence", "hi": "एक छोटा वाक्य", "es": "una frase corta" },
       "captions": [
-        { "atSec": 0, "text": { "en": "what is on screen, plus one fact", "hi": "स्क्रीन पर क्या है, और एक तथ्य", "es": "qué se ve, y un dato" } },
-        { "atSec": 4, "text": { "en": "why this moment matters", "hi": "यह क्षण क्यों मायने रखता है", "es": "por qué importa este momento" } }
+        { "atSec": 0, "text": { "en": "≤8 words", "hi": "≤8 शब्द", "es": "≤8 palabras" } },
+        { "atSec": 4, "text": { "en": "≤8 words", "hi": "≤8 शब्द", "es": "≤8 palabras" } }
       ],
       "durationHintSec": 8,
       "objectId": "matching_object_id",
-      "videoPrompt": "Veo motion prompt for this beat, no on-screen text"
+      "videoPrompt": "short Veo motion prompt, no on-screen text"
     }
   ],
   "objects": [
@@ -185,27 +252,43 @@ Return JSON only:
       "reason": "why students click this",
       "color": "#RRGGBB",
       "mesh": { "type": "sphere", "radius": 1 },
-      "imagePrompt": "isolated still of this object, educational, clean studio, no text",
+      "imagePrompt": "isolated still, educational, clean studio, no text",
       "labels": [{ "id": "part", "text": "Part name" }]
     }
   ]
 }
 
 Rules:
-- Exactly ${objectLimit} objects and ${objectLimit} beats (one beat per object), in story order.
-- The beats together answer the topic. Beat 1 is the world before. The last beat is the cause and the ending.
-- Keywords support that story. Do not turn each keyword into its own unrelated object.
-- For "extinction of dinosaurs", beat 1 is the living kingdom (families and their food). Beat 2 is what ended it (the cause, then the kingdom gone). Do not use a museum skeleton, a lone fern, or a jungle portrait unless that image itself shows the cause or the ending.
+- Exactly ${objectLimit} objects and ${objectLimit} beats, in story order.
 - Each beat.objectId must match an object.id.
-- imagePrompt and videoPrompt stay in English.
-- imagePrompt: one clear subject a student could turn in 3D, placed in the story's setting (a family of dinosaurs grazing, an asteroid above the Earth). Not a blank studio product shot.
-- videoPrompt: what happens in this scene and why, with a gentle camera move. No on-screen text.
-- narration.en, narration.hi, and narration.es are real translations. One simple sentence for the age group. Together the narrations tell how and why.
-- captions: exactly 2 short lines per beat, at 0 and 4 seconds. Each line is at most 8 words for ages 8-10 (12 words for older). Name what is visible, then one fact (when, what happened, or why). Real translations in en, hi, and es.
-- Captions are drawn on the player. Do not ask for words inside the picture.`;
+- imagePrompt and videoPrompt stay in English and under 160 characters.
+- narration and captions need real en/hi/es, but keep each line short.
+- No trailing commentary outside the JSON object.`;
 
-  const raw = await geminiGenerate(prompt, { json: true });
-  return normalizePlan(JSON.parse(raw), objectLimit);
+  const compactPrompt = `Return ONLY compact JSON for a ${objectLimit}-beat classroom lesson about:
+"""
+${teacherPrompt}
+"""
+Schema: {"beats":[{"id":"","title":"","narration":{"en":"","hi":"","es":""},"captions":[{"atSec":0,"text":{"en":"","hi":"","es":""}},{"atSec":4,"text":{"en":"","hi":"","es":""}}],"durationHintSec":8,"objectId":"","videoPrompt":""}],"objects":[{"id":"","label":"","reason":"","color":"#5c6bc0","mesh":{"type":"sphere","radius":1},"imagePrompt":"","labels":[{"id":"part","text":""}]}]}
+Exactly ${objectLimit} beats and ${objectLimit} objects. Short strings only.`;
+
+  let lastErr;
+  for (const [attempt, nextPrompt] of [
+    [1, prompt],
+    [2, compactPrompt],
+  ]) {
+    try {
+      const raw = await geminiGenerate(nextPrompt, {
+        json: true,
+        maxOutputTokens: attempt === 1 ? 8192 : 4096,
+        temperature: 0.25,
+      });
+      return normalizePlan(parseModelJson(raw), objectLimit);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("Gemini plan JSON could not be parsed");
 }
 
 async function writeStill(assetDir, object) {
@@ -360,7 +443,9 @@ export async function prepareCellAssets({
     throw new Error("Veo requested but no Google project is set. Run: gcloud auth login && gcloud config set project PROJECT_ID");
   }
   if (useTripo && !tripoEnabled()) {
-    throw new Error("Tripo requested but TRIPO_API_KEY is missing (or TRIPO_ENABLED=false)");
+    steps.push("Tripo disabled (TRIPO_ENABLED=false) — skipping 3D API");
+    useTripo = false;
+    await emit("tripo-skipped", { notice: "Tripo API disabled — using stills only" });
   }
 
   await emit("starting", { notice: reuseExisting ? "Prepare started (reuse existing stills/video where possible)" : "Prepare started" });
@@ -486,6 +571,7 @@ export async function prepareCellAssets({
 
   if (videos.length >= 2) {
     const destPath = path.join(videoDir, "lesson-merged.mp4");
+    const posterPath = path.join(videoDir, "lesson-merged-poster.jpg");
     const clipPaths = videos.slice(0, MAX_LESSON_CLIPS).map((clip) => {
       const name = clip.url.split("/").pop().split("?")[0];
       return path.join(videoDir, name);
@@ -493,15 +579,21 @@ export async function prepareCellAssets({
     await emit("merge", { notice: "Merging clips into one lesson video…" });
     try {
       const info = await mergeLessonClips(clipPaths, destPath, { fadeSec: MERGE_FADE_SECONDS });
+      // Poster is best-effort; never leave mergedVideo pointing at a missing/corrupt file.
+      await writeMergedPoster(destPath, posterPath).catch(() => fs.unlink(posterPath).catch(() => {}));
+      const stamp = Date.now();
       mergedVideo = {
         ...buildMergedVideoMeta(videos, PACK_ID, MERGE_FADE_SECONDS),
         durationSeconds: info.durationSeconds,
-        url: `/generated/${PACK_ID}/video/lesson-merged.mp4?t=${Date.now()}`,
+        url: `/generated/${PACK_ID}/video/lesson-merged.mp4?t=${stamp}`,
+        posterUrl: `/generated/${PACK_ID}/video/lesson-merged-poster.jpg?t=${stamp}`,
       };
       steps.push(`Merged 2 clips into one ${info.durationSeconds.toFixed(1)}s lesson video`);
       await emit("merge-ready", { notice: "One lesson video ready (~16s)" });
     } catch (err) {
-      mergedVideo = buildMergedVideoMeta(videos, PACK_ID, MERGE_FADE_SECONDS);
+      // Do not publish a URL to a half-written/corrupt lesson-merged.mp4.
+      mergedVideo = null;
+      await fs.unlink(destPath).catch(() => {});
       steps.push(`Merge skipped: ${err.message}`);
       await emit("merge-error", { notice: `Could not merge clips: ${err.message}` });
     }
@@ -574,20 +666,42 @@ export async function prepareCellAssets({
     await emit("tripo-skipped");
   }
 
-  return emit("done", { notice: "Prepare pack complete" });
+  return emit("done", { notice: "Prepare pack complete", status: "done" });
 }
 
-export async function readCellPack() {
+function packLooksComplete(pack) {
+  if (!pack) return false;
+  if (pack.status === "done") return true;
+  const hasVideo = Boolean(pack.mergedVideo?.url || pack.videos?.some((v) => v?.url));
+  const hasAssets = Array.isArray(pack.assets) && pack.assets.some((a) => a?.glbUrl || a?.sourceImageUrl || a?.previewUrl);
+  return hasVideo || hasAssets;
+}
+
+export async function readCellPack({ repair = false } = {}) {
   const manifestPath = path.join(GENERATED_ROOT, `${PACK_ID}/manifest.json`);
   try {
     const text = await fs.readFile(manifestPath, "utf8");
-    const pack = JSON.parse(text);
-    const prevRevision = pack.mergedVideo?.mergeRevision;
-    const next = await ensureMergedLessonVideo(pack, { packId: PACK_ID, generatedRoot: GENERATED_ROOT });
-    if (next.mergedVideo?.url && prevRevision !== next.mergedVideo?.mergeRevision) {
-      await fs.writeFile(manifestPath, JSON.stringify(next, null, 2), "utf8");
+    let pack = JSON.parse(text);
+    const previousMerged = pack.mergedVideo || null;
+
+    // Ordinary GETs stay read-only. Remux only when explicitly repairing or video is missing.
+    const missingMerged = !pack.mergedVideo?.url;
+    if (repair || missingMerged) {
+      pack = await ensureMergedLessonVideo(pack, { packId: PACK_ID, generatedRoot: GENERATED_ROOT });
+      if (!pack.mergedVideo?.url && previousMerged?.url) {
+        pack = { ...pack, mergedVideo: previousMerged };
+      }
+      if (pack.mergedVideo?.url && pack.mergedVideo?.url !== previousMerged?.url) {
+        await fs.writeFile(manifestPath, JSON.stringify(pack, null, 2), "utf8");
+      }
     }
-    return next;
+
+    // Interrupted generates leave status like "merge"/"tripo" — heal so UI survives refresh.
+    if (packLooksComplete(pack) && pack.status !== "done") {
+      pack = { ...pack, status: "done", notice: pack.notice || "Prepare pack ready" };
+      await fs.writeFile(manifestPath, JSON.stringify(pack, null, 2), "utf8");
+    }
+    return pack;
   } catch {
     return null;
   }

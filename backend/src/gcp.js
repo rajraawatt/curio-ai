@@ -89,13 +89,16 @@ function textFromGemini(data) {
   return parts.map((p) => p.text || "").join("").trim();
 }
 
-export async function geminiGenerate(prompt, { json = false } = {}) {
+export async function geminiGenerate(
+  prompt,
+  { json = false, maxOutputTokens = 4096, temperature = 0.6 } = {},
+) {
   const model = geminiModel();
   const body = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
-      temperature: 0.6,
-      maxOutputTokens: 4096,
+      temperature,
+      maxOutputTokens,
       ...(json ? { responseMimeType: "application/json" } : {}),
     },
   };
@@ -129,7 +132,10 @@ export async function geminiGenerate(prompt, { json = false } = {}) {
     throw new Error(message || `Gemini request failed (${res.status})`);
   }
   const text = textFromGemini(data);
-  if (!text) throw new Error("Gemini returned an empty response");
+  if (!text) {
+    const reason = data?.candidates?.[0]?.finishReason || data?.candidates?.[0]?.finish_reason || "";
+    throw new Error(reason ? `Gemini returned an empty response (${reason})` : "Gemini returned an empty response");
+  }
   return text;
 }
 

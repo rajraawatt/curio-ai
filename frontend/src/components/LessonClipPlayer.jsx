@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { prefetchCaption, speakCaption, stopCaptionVoice } from "../speech.js";
 import { trackAnalytics } from "../analyticsClient.js";
+import { freshMediaUrl } from "../mediaReady.js";
 
 function clipCues(clip) {
   if (clip?.merged) {
@@ -65,6 +66,12 @@ export function LessonClipPlayer({
   trackPlayback,
   trackMode = "self_paced",
   trackAs = "Viewer",
+  hideNativeControls = false,
+  onSurfaceClick,
+  onTime,
+  playbackRef,
+  preload = "metadata",
+  deferSrc = false,
 }) {
   const videoRef = useRef(null);
   const speakingRef = useRef(false);
@@ -75,8 +82,47 @@ export function LessonClipPlayer({
   const cues = clipCues(clip);
   const dueIndex = cueIndex(cues, time);
   const line = cueText(cues[reading >= 0 ? reading : dueIndex], lang);
-  const src = clip.url.split("?")[0];
-  const poster = clip.posterUrl ? String(clip.posterUrl).split("?")[0] : undefined;
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const src = clip?.url ? freshMediaUrl(clip.url, loadAttempt) : "";
+  const poster = clip?.posterUrl ? freshMediaUrl(clip.posterUrl, loadAttempt) : undefined;
+  const [videoError, setVideoError] = useState("");
+
+  useEffect(() => {
+    setVideoError("");
+    setLoadAttempt(0);
+  }, [clip?.url]);
+
+  useEffect(() => {
+    if (!videoError || !clip?.url || loadAttempt >= 6) return undefined;
+    const timer = setTimeout(() => {
+      setVideoError("");
+      setLoadAttempt((n) => n + 1);
+    }, 450 * (loadAttempt + 1));
+    return () => clearTimeout(timer);
+  }, [videoError, loadAttempt, clip?.url]);
+
+  useEffect(() => {
+    if (!playbackRef) return undefined;
+    playbackRef.current = {
+      play: () => {
+        const video = videoRef.current;
+        if (!video) return Promise.resolve();
+        if (deferSrc && !video.getAttribute("src")) video.src = src;
+        if (video.ended) video.currentTime = 0;
+        return video.play();
+      },
+      pause: () => {
+        videoRef.current?.pause();
+      },
+    };
+    return () => {
+      if (playbackRef) playbackRef.current = null;
+    };
+  });
+
+  if (!src) {
+    return <p className="m-0 font-bold text-[#6B7280]">Video URL missing for this clip.</p>;
+  }
   const startNextRef = useRef(() => {});
 
   startNextRef.current = (video) => {
@@ -160,22 +206,30 @@ export function LessonClipPlayer({
   }, [playing]);
 
   return (
-    <figure className={`prepare-video-card ${compact ? "compact" : ""}`}>
-      <div className="prepare-video-frame class-stage-video">
+    <figure className="m-0 font-[Nunito,sans-serif]">
+      <div
+        className={`relative overflow-hidden rounded-xl border border-[#F0EAE0] bg-black ${
+          compact ? "min-h-[320px] flex-1" : "min-h-[260px]"
+        }`}
+      >
         <video
           ref={videoRef}
-          key={clip.url}
-          src={src}
+          key={src}
+          src={deferSrc ? undefined : src}
           poster={poster}
-          controls
+          controls={!hideNativeControls}
           playsInline
-          preload="metadata"
+          preload={preload}
+          className={`block h-auto w-full bg-black ${compact ? "min-h-[320px] object-contain" : "aspect-video max-h-[420px] object-contain"}`}
+          onError={() => setVideoError("The browser could not play this video file.")}
+          onLoadedData={() => setVideoError("")}
           onPlay={(e) => {
             logVideoPlay();
             startNextRef.current(e.currentTarget);
           }}
           onTimeUpdate={(e) => {
             setTime(e.currentTarget.currentTime);
+            onTime?.(e.currentTarget.currentTime);
             startNextRef.current(e.currentTarget);
           }}
           onEnded={(e) => setTime(e.currentTarget.duration || e.currentTarget.currentTime)}
@@ -209,15 +263,33 @@ export function LessonClipPlayer({
             speakingRef.current = false;
             stopCaptionVoice(video);
           }}
-        >
-          <source src={src} type="video/mp4" />
-        </video>
-        {captions && line && <p className="prepare-caption">{line}</p>}
+        />
+        {hideNativeControls && (
+          <button
+            type="button"
+            className="absolute inset-0 cursor-pointer border-0 bg-transparent"
+            aria-label="Open the 3D model for this moment"
+            onClick={() => onSurfaceClick?.(videoRef.current?.currentTime || 0)}
+          />
+        )}
+        {videoError && (
+          <p className="absolute inset-x-3 top-3 m-0 rounded-md bg-black/80 px-3 py-2 text-center text-sm font-bold text-white">
+            {videoError}{" "}
+            <a href={src} className="underline" target="_blank" rel="noreferrer">
+              Open file
+            </a>
+          </p>
+        )}
+        {captions && line && (
+          <p className="pointer-events-none absolute bottom-9 left-2 right-2 m-0 rounded-md bg-black/70 px-2.5 py-1.5 text-center text-[0.92rem] leading-snug text-white">
+            {line}
+          </p>
+        )}
       </div>
       {!compact && (
-        <figcaption>
+        <figcaption className="mt-1.5 text-[0.8rem] text-[#6B7280]">
           {clip.title} ({clip.durationSeconds}s) ·{" "}
-          <a href={src} target="_blank" rel="noreferrer">
+          <a href={src} target="_blank" rel="noreferrer" className="font-extrabold text-[#7C3AED] hover:underline">
             open file
           </a>
         </figcaption>

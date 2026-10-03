@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@source "./**/*.{js,jsx}";
+@source "../index.html";
+
+@theme {
+  --font-sans: Nunito, "Noto Sans Devanagari", "Segoe UI", Helvetica, Arial, sans-serif;
+  --color-cream: #f8f4ed;
+  --color-cream-deep: #f3eee6;
+  --color-violet: #7c3aed;
+  --color-violet-deep: #6d28d9;
+  --color-violet-soft: #ede4ff;
+  --color-lilac: #c4b5fd;
+  --color-pink: #ec4899;
+  --color-pink-soft: #fce7f3;
+  --color-ink: #1f2937;
+  --color-muted: #6b7280;
+  --color-hover: #f3eeff;
+  --color-line: #f0eae0;
+  --shadow-chip: 0 4px 0 rgba(0, 0, 0, 0.08);
+  --shadow-violet: 0 4px 0 rgba(124, 58, 237, 0.35);
+  --shadow-pink: 0 4px 0 rgba(236, 72, 153, 0.35);
+  --shadow-panel: 0 8px 24px rgba(124, 58, 237, 0.08);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    color: var(--color-ink);
+    background: var(--color-cream);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  a {
+    color: inherit;
+  }
+}
+
+@keyframes drift {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(80px);
+  }
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0.4;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes playhead {
+  from {
+    width: 32%;
+  }
+  to {
+    width: 78%;
+  }
+}

@@ -1,12 +1,12 @@
 function MountainScene() {
   return (
-    <div className="mountain">
-      <div className="sky" />
-      <div className="sun" />
-      <div className="cloud c1" />
-      <div className="cloud c2" />
-      <div className="cloud c3" />
-      <svg className="peaks" viewBox="0 0 1440 810" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <div className="absolute inset-0 overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-b from-[#9ec5ea] via-[#cfe3f6] to-[#8eaf72]" />
+      <div className="absolute top-[12%] right-[18%] size-16 rounded-full bg-[#ffe08a] shadow-[0_0_40px_rgba(255,224,138,0.65)]" />
+      <div className="absolute top-[18%] left-[8%] h-10 w-28 rounded-full bg-white/70 blur-[1px]" />
+      <div className="absolute top-[26%] left-[28%] h-8 w-24 rounded-full bg-white/60" />
+      <div className="absolute top-[22%] right-[30%] h-9 w-32 rounded-full bg-white/65" />
+      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 1440 810" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
         <defs>
           <linearGradient id="farPeak" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="#d5e4f5" />
@@ -32,35 +32,26 @@ function MountainScene() {
         <path fill="url(#frontPeak)" d="M0 700 L180 580 L340 660 L520 530 L730 670 L940 560 L1160 690 L1440 600 L1440 810 L0 810 Z" />
         <path fill="#fbfcff" d="M520 530 L575 590 L478 592 Z M940 560 L1010 630 L880 628 Z" />
         <path fill="url(#meadow)" d="M0 760 C240 720 420 790 720 740 C1040 688 1220 760 1440 730 L1440 810 L0 810 Z" />
-        <g className="boulder">
+        <g>
           <ellipse cx="1030" cy="742" rx="92" ry="18" fill="#1d2b22" opacity="0.28" />
           <path fill="#8b8178" d="M960 742 L990 690 L1048 668 L1110 700 L1124 748 L1040 760 Z" />
           <path fill="#a79b90" d="M990 690 L1048 668 L1072 710 L1012 724 Z" />
           <path fill="#6f655e" d="M1048 668 L1110 700 L1078 724 L1044 712 Z" />
-          <path fill="#e7d2c4" d="M1018 708 l16 8 l-8 14 z" />
-          <path fill="#d9dde3" d="M1064 702 l18 4 l-6 16 z" />
-          <path fill="#2d2928" d="M1088 724 l10 6 l-14 8 z" />
         </g>
       </svg>
     </div>
   );
 }
 
-function Brackets({ children }) {
+function Brackets() {
   return (
-    <div className="brackets">
-      <span />
-      <span />
-      <span />
-      <span />
-      {children}
-    </div>
+    <div className="pointer-events-none absolute inset-[12%] border-2 border-dashed border-white/50" aria-hidden="true" />
   );
 }
 
 function Boulder({ cut = false }) {
   return (
-    <svg className="boulder-hero" viewBox="0 0 640 460" aria-hidden="true">
+    <svg className="relative z-[2] h-[70%] max-h-[340px] w-auto drop-shadow-2xl" viewBox="0 0 640 460" aria-hidden="true">
       <ellipse cx="320" cy="400" rx="210" ry="28" fill="#000" opacity="0.25" />
       <path
         fill="#8d847c"
@@ -74,16 +65,12 @@ function Boulder({ cut = false }) {
           <path fill="#f3efe8" d="M230 230 L360 216 L372 300 L240 312 Z" />
           <path fill="#e7b7c0" d="M300 240 L410 228 L424 330 L312 342 Z" />
           <path fill="#2c2a2a" d="M250 300 L390 286 L400 340 L258 352 Z" />
-          <path fill="#f7f4ef" d="M268 248 l28 6 l-8 22 z" />
-          <path fill="#c98496" d="M340 260 l34 4 l-10 24 z" />
         </>
       ) : (
         <>
           <path fill="#efe6dc" d="M250 250 l36 10 l-12 28 z" opacity="0.9" />
           <path fill="#e4b7c2" d="M360 230 l40 8 l-14 30 z" />
           <path fill="#222" d="M410 300 l22 8 l-16 18 z" />
-          <path d="M180 300 C260 270 340 290 470 250" fill="none" stroke="#5c554f" strokeWidth="3" opacity="0.45" />
-          <path d="M200 340 C300 320 390 350 500 310" fill="none" stroke="#5c554f" strokeWidth="2" opacity="0.35" />
         </>
       )}
     </svg>
@@ -91,31 +78,29 @@ function Boulder({ cut = false }) {
 }
 
 function Mineral({ name, kind }) {
+  const fills = {
+    quartz: "rgba(255,255,255,.72)",
+    feldspar: "#e7a3b0",
+    mica: "#c4b5fd",
+    pyroxene: "#7c9b6a",
+    olivine: "#a3d977",
+  };
   return (
-    <figure className={`gem gem-${kind}`}>
-      <svg viewBox="0 0 120 140" aria-hidden="true">
+    <figure className="m-0 grid justify-items-center gap-2 rounded-2xl bg-white/90 px-3 py-3 text-ink shadow-lg">
+      <svg className="h-16 w-14" viewBox="0 0 120 140" aria-hidden="true">
         {kind === "quartz" && (
-          <polygon points="60,8 100,48 88,120 32,120 20,48" fill="rgba(255,255,255,.72)" stroke="#efe8df" strokeWidth="3" />
+          <polygon points="60,8 100,48 88,120 32,120 20,48" fill={fills.quartz} stroke="#efe8df" strokeWidth="3" />
         )}
-        {kind === "feldspar" && <rect x="28" y="24" width="68" height="92" rx="10" fill="#e7a3b0" />}
-        {kind === "mica" && (
-          <>
-            <rect x="26" y="36" width="70" height="16" rx="3" fill="#2a2724" transform="rotate(-8 60 70)" />
-            <rect x="26" y="58" width="70" height="16" rx="3" fill="#3d3832" transform="rotate(4 60 70)" />
-            <rect x="26" y="80" width="70" height="16" rx="3" fill="#161411" transform="rotate(-3 60 70)" />
-          </>
-        )}
-        {kind === "olivine" && <polygon points="60,16 104,70 84,124 36,124 16,70" fill="#6f8f3a" />}
-        {kind === "pyroxene" && <polygon points="30,20 92,20 108,70 78,128 24,110 12,60" fill="#243042" />}
+        {kind !== "quartz" && <rect x="28" y="24" width="68" height="92" rx="10" fill={fills[kind] || fills.mica} />}
       </svg>
-      <figcaption>{name}</figcaption>
+      <figcaption className="text-xs font-extrabold">{name}</figcaption>
     </figure>
   );
 }
 
 function mineralSet(stage) {
-  const blob = `${stage?.caption?.en || ""} ${stage?.narration?.en || ""}`.toLowerCase();
-  if (blob.includes("basalt") || blob.includes("pyroxene") || blob.includes("olivine")) {
+  const text = `${stage?.title || ""} ${stage?.label || ""}`.toLowerCase();
+  if (text.includes("dark") || text.includes("mafic")) {
     return [
       ["Pyroxene", "pyroxene"],
       ["Olivine", "olivine"],
@@ -132,34 +117,31 @@ function mineralSet(stage) {
 export function Scene({ visual, stage }) {
   const minerals = mineralSet(stage);
   return (
-    <div className={`scene scene-${visual}`} key={visual}>
-      {visual !== "mountain" && (
-        <div className="bleed">
-          <MountainScene />
-        </div>
-      )}
-      {visual === "mountain" && <MountainScene />}
+    <div className="absolute inset-0 overflow-hidden" key={visual}>
+      {(visual === "mountain" || visual !== "mountain") && <MountainScene />}
 
       {visual === "rock" && (
-        <div className="foreground">
+        <div className="absolute inset-0 z-[2] grid place-items-center">
           <Brackets />
           <Boulder />
         </div>
       )}
 
       {visual === "cross-section" && (
-        <div className="foreground">
+        <div className="absolute inset-0 z-[2] grid place-items-center gap-4 p-6">
           <Boulder cut />
-          <ul className="leaders">
-            <li>Quartz vein</li>
-            <li>Feldspar</li>
-            <li>Mica flakes</li>
+          <ul className="m-0 flex list-none flex-wrap justify-center gap-2 p-0">
+            {["Quartz vein", "Feldspar", "Mica flakes"].map((label) => (
+              <li key={label} className="rounded-full bg-white/90 px-3 py-1 text-xs font-extrabold text-ink">
+                {label}
+              </li>
+            ))}
           </ul>
         </div>
       )}
 
       {visual === "minerals" && (
-        <div className="foreground mineral-row">
+        <div className="absolute inset-x-0 bottom-[18%] z-[2] flex flex-wrap justify-center gap-3 px-4">
           {minerals.map(([name, kind]) => (
             <Mineral key={name} name={name} kind={kind} />
           ))}
@@ -167,106 +149,59 @@ export function Scene({ visual, stage }) {
       )}
 
       {visual === "crystals" && (
-        <div className="foreground lattice-wrap">
-          <svg className="lattice" viewBox="0 0 360 220" aria-hidden="true">
-            {Array.from({ length: 5 }).map((_, row) =>
+        <div className="absolute inset-0 z-[2] grid place-items-center p-6">
+          <svg className="h-[55%] max-h-[240px] w-auto rounded-2xl bg-white/90 p-4 shadow-xl" viewBox="0 0 360 220" aria-hidden="true">
+            {Array.from({ length: 4 }).map((_, row) =>
               Array.from({ length: 7 }).map((__, col) => {
-                const x = 30 + col * 48 + (row % 2 ? 24 : 0);
-                const y = 28 + row * 40;
+                const x = 40 + col * 48;
+                const y = 40 + row * 42;
                 return (
                   <g key={`${row}-${col}`}>
-                    {col < 6 && <line x1={x} y1={y} x2={x + 48} y2={y} className="bond" />}
-                    <circle cx={x} cy={y} r={row === 2 && col === 3 ? 11 : 7} className="node" />
+                    {col < 6 && <line x1={x} y1={y} x2={x + 48} y2={y} stroke="#7C3AED" strokeWidth="2" opacity="0.35" />}
+                    <circle cx={x} cy={y} r={row === 2 && col === 3 ? 11 : 7} fill="#7C3AED" />
                   </g>
                 );
               })
             )}
           </svg>
-          <p className="formula">
-            SiO<sub>2</sub>
-          </p>
+          <p className="mt-3 rounded-full bg-white/90 px-3 py-1 text-sm font-extrabold text-ink">SiO₂ lattice</p>
         </div>
       )}
 
       {visual === "atoms" && (
-        <div className="foreground atom">
-          <div className="nucleus">Si</div>
-          <i className="orbit o1" />
-          <i className="orbit o2" />
-          <i className="orbit o3" />
-          <div className="atom-key">
-            <span>Silicon</span>
-            <span>Oxygen</span>
+        <div className="absolute inset-0 z-[2] grid place-items-center">
+          <div className="relative grid size-40 place-items-center rounded-full bg-violet text-2xl font-black text-white shadow-[0_0_0_18px_rgba(124,58,237,0.2),0_0_0_36px_rgba(124,58,237,0.12)]">
+            Si
           </div>
         </div>
       )}
 
-      {visual === "tectonics" && (
-        <div className="foreground earth">
-          <svg viewBox="0 0 760 360" aria-hidden="true">
-            <rect width="760" height="360" fill="#1b3358" />
-            <path d="M0 150 H760 V230 H0 Z" fill="#c47a4a" />
-            <path className="plate left" d="M0 80 H340 L390 150 H0 Z" fill="#6e8f62" />
-            <path className="plate right" d="M420 150 H760 V80 H470 Z" fill="#7f9b6c" />
-            <path d="M300 150 L380 70 L460 150 Z" fill="#d7e2ea" />
-            <path d="M330 150 L380 96 L430 150 Z" fill="#f4f7fb" />
-            <path d="M80 190 H250" stroke="#fff4" strokeWidth="4" markerEnd="url(#arr)" />
-            <path d="M680 190 H500" stroke="#fff4" strokeWidth="4" />
-            <text x="70" y="250" fill="#f3d2bc" fontSize="18">
-              Plate
-            </text>
-            <text x="560" y="250" fill="#f3d2bc" fontSize="18">
-              Plate
-            </text>
-            <text x="330" y="40" fill="#fff" fontSize="18">
-              Uplift
-            </text>
+      {visual === "earth" && (
+        <div className="absolute inset-0 z-[2] grid place-items-center p-8">
+          <svg className="h-[60%] max-h-[280px] w-auto drop-shadow-xl" viewBox="0 0 760 220" aria-hidden="true">
+            <path d="M0 80 H340 L390 150 H0 Z" fill="#6e8f62" />
+            <path d="M420 150 H760 V80 H470 Z" fill="#7f9b6c" />
+            <rect x="340" y="70" width="130" height="90" fill="#c4a574" opacity="0.85" />
           </svg>
         </div>
       )}
 
       {visual === "volcano" && (
-        <div className="foreground volcano">
-          <div className="glow" />
-          <svg viewBox="0 0 640 380" aria-hidden="true">
-            <path d="M40 340 L300 80 L600 340 Z" fill="#2a2428" />
-            <path d="M250 150 L300 80 L360 160 L300 140 Z" fill="#ffb15a" />
-            <path d="M300 150 C320 210 340 250 330 340 L270 340 C280 250 286 200 300 150 Z" fill="#ff5a2a" />
+        <div className="absolute inset-0 z-[2] grid place-items-end justify-center pb-[12%]">
+          <div className="absolute bottom-[28%] size-24 rounded-full bg-[#ff7a3d]/50 blur-2xl" />
+          <svg className="h-[55%] max-h-[260px] w-auto" viewBox="0 0 400 260" aria-hidden="true">
+            <path d="M40 240 L160 80 L240 80 L360 240 Z" fill="#5c534c" />
+            <path d="M170 80 L230 80 L210 40 Z" fill="#ff5a2a" />
           </svg>
         </div>
       )}
 
-      {visual === "time" && (
-        <div className="foreground time-card">
-          <p>Deep time</p>
-          <strong>48 million years</strong>
-          <ol>
-            <li>Plates move a few centimeters a year</li>
-            <li>Crust folds and stacks</li>
-            <li>A range stands where a plain once was</li>
-          </ol>
-        </div>
-      )}
-
-      {visual === "compare" && (
-        <div className="foreground compare">
-          <article>
-            <div className="swatch pale" />
-            <h3>Granite</h3>
-            <p>Cooled slowly underground. Large, pale crystals.</p>
-          </article>
-          <article>
-            <div className="swatch dark" />
-            <h3>Basalt</h3>
-            <p>Cooled fast from lava. Fine, dark minerals.</p>
-          </article>
-        </div>
-      )}
-
-      {visual === "insight" && (
-        <div className="foreground insight">
-          <p>The question changes the view</p>
-          <strong>{stage?.label?.en || "Look closer"}</strong>
+      {(visual === "time" || visual === "insight" || visual === "compare") && (
+        <div className="absolute inset-x-[10%] bottom-[16%] z-[2] rounded-3xl bg-white/95 p-5 text-ink shadow-2xl">
+          <p className="m-0 text-sm font-extrabold text-violet">Classroom insight</p>
+          <p className="mt-2 m-0 font-bold leading-relaxed">
+            {stage?.title || stage?.label || "The shared world shifts with the question."}
+          </p>
         </div>
       )}
     </div>

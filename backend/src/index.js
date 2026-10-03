@@ -6,6 +6,15 @@ import { addQuestion, control, currentNarration, publicState, subscribe, trackEv
 import { generateDiagram, healthInfo, startVeoClip, synthesizeSpeech } from "./gcp.js";
 import { prepareCellAssets, readCellPack, MOCK_CELL_SUMMARY } from "./prepareAssets.js";
 import { lessonFromBody } from "./preparePrompt.js";
+import { askModelTutor } from "./modelTutor.js";
+import {
+  getGalleryLibrary,
+  getLearningForClass,
+  initGallery,
+  rememberLastPrepare,
+  savePackToGallery,
+  sharePackToLearning,
+} from "./gallery.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -87,6 +96,16 @@ app.post("/api/tts", async (req, res) => {
   }
 });
 
+/** 3D model click → Gemini tutor (text; client speaks via /api/tts). */
+app.post("/api/model-tutor", async (req, res) => {
+  try {
+    const result = await askModelTutor(req.body || {});
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 app.post("/api/diagram", async (req, res) => {
   const prompt = String(req.body?.prompt || "").trim();
   if (!prompt) return res.status(400).json({ error: "Prompt is required" });
@@ -129,6 +148,46 @@ app.get("/api/prepare/assets", async (_req, res) => {
   }
 });
 
+app.get("/api/gallery", async (_req, res) => {
+  try {
+    res.json(await getGalleryLibrary());
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.post("/api/gallery/save", async (req, res) => {
+  try {
+    const { classId, subjectId, pack } = req.body || {};
+    const saved = await savePackToGallery({ classId, subjectId, pack });
+    res.json({ ok: true, pack: saved, library: await getGalleryLibrary() });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.post("/api/gallery/share", async (req, res) => {
+  try {
+    const { classId, subjectId, packId, pack } = req.body || {};
+    const result = await sharePackToLearning({ classId, subjectId, packId, pack });
+    if (result.pack) {
+      await control("setLearningLesson", { pack: result.pack });
+    }
+    res.json({ ok: true, ...result, library: await getGalleryLibrary() });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.get("/api/gallery/learning", async (req, res) => {
+  try {
+    const classId = String(req.query.classId || "6a");
+    res.json(await getLearningForClass(classId));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 app.post("/api/prepare/assets", async (req, res) => {
   const useStream = req.query.stream === "1" || req.headers.accept?.includes("text/event-stream");
   const useGemini = req.body?.useGemini !== false;
@@ -136,6 +195,8 @@ app.post("/api/prepare/assets", async (req, res) => {
   const useTripo = Boolean(req.body?.useTripo);
   const reuseExisting = Boolean(req.body?.reuseExisting);
   const objectCount = Number(req.body?.objectCount) || 2;
+  const classId = String(req.body?.classId || "6a");
+  const subjectId = String(req.body?.subjectId || "science");
   let lesson;
   try {
     lesson = lessonFromBody(req.body, MOCK_CELL_SUMMARY);
@@ -143,6 +204,22 @@ app.post("/api/prepare/assets", async (req, res) => {
     return res.status(err.status || 400).json({ error: err.message });
   }
   const { prompt } = lesson;
+
+  async function persistFinishedPack(pack) {
+    if (!pack) return pack;
+    const enriched = {
+      ...pack,
+      status: "done",
+      classId,
+      subjectId,
+      topic: pack.topic || lesson.topic || null,
+    };
+    await rememberLastPrepare(enriched).catch(() => {});
+    await savePackToGallery({ classId, subjectId, pack: enriched }).catch((err) => {
+      console.warn("[gallery] auto-save failed", err.message);
+    });
+    return enriched;
+  }
 
   if (useStream) {
     res.setHeader("Content-Type", "text/event-stream");
@@ -163,10 +240,11 @@ app.post("/api/prepare/assets", async (req, res) => {
         reuseExisting,
         objectCount,
         onProgress: async (partial) => {
-          send("pack", partial);
+          send("pack", { ...partial, classId, subjectId });
         },
       });
-      send("done", { ok: true, pack });
+      const finished = await persistFinishedPack(pack);
+      send("done", { ok: true, pack: finished });
     } catch (err) {
       console.error("[prepare]", err);
       send("error", { error: err.message });
@@ -186,7 +264,8 @@ app.post("/api/prepare/assets", async (req, res) => {
       reuseExisting,
       objectCount,
     });
-    res.status(201).json({ ok: true, pack });
+    const finished = await persistFinishedPack(pack);
+    res.status(201).json({ ok: true, pack: finished });
   } catch (err) {
     console.error("[prepare]", err);
     res.status(500).json({ error: err.message });
@@ -205,6 +284,10 @@ app.get("*", (req, res) => {
 });
 
 const port = Number(process.env.PORT || 8080);
-app.listen(port, () => {
-  console.log(`CURIO listening on ${port}`);
-});
+initGallery()
+  .catch((err) => console.warn("[gallery] init failed", err.message))
+  .finally(() => {
+    app.listen(port, () => {
+      console.log(`CURIO listening on ${port}`);
+    });
+  });

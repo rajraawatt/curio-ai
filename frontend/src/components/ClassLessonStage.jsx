@@ -27,14 +27,21 @@ export function ClassLessonStage({
   const title = pack?.topic || pack?.lesson?.title || "Prepared lesson";
 
   return (
-    <div className="class-stage" aria-label="Lesson stage">
-      <header className="class-stage-head">
+    <div
+      className="grid min-h-[420px] flex-1 grid-rows-[auto_1fr] overflow-hidden rounded-xl border border-[#3c4043] bg-[#202124]"
+      aria-label="Lesson stage"
+    >
+      <header className="flex items-start justify-between gap-3 border-b border-[#3c4043] px-4 pt-3.5 pb-2.5">
         <div>
-          <p className="stage-empty-kicker">{kicker}</p>
-          <h2>{title}</h2>
+          <p className="m-0 text-[0.68rem] font-medium uppercase tracking-[0.08em] text-[#9aa0a6]">{kicker}</p>
+          <h2 className="m-0 text-[clamp(1.1rem,2vw,1.35rem)] font-medium text-white">{title}</h2>
         </div>
         {!readOnly && onClear && (
-          <button type="button" className="class-stage-clear" onClick={onClear}>
+          <button
+            type="button"
+            className="cursor-pointer rounded-full border-0 bg-[#3c4043] px-3 py-1.5 font-medium text-[#e8eaed] hover:bg-[#5f6368]"
+            onClick={onClear}
+          >
             Clear
           </button>
         )}
