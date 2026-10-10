@@ -114,6 +114,12 @@ export function LessonClipPlayer({
       pause: () => {
         videoRef.current?.pause();
       },
+      seek: (seconds) => {
+        const video = videoRef.current;
+        if (!video) return;
+        const next = Math.max(0, Number(seconds) || 0);
+        video.currentTime = next;
+      },
     };
     return () => {
       if (playbackRef) playbackRef.current = null;
@@ -219,18 +225,31 @@ export function LessonClipPlayer({
           poster={poster}
           controls={!hideNativeControls}
           playsInline
+          muted={Boolean(captions && cues.length)}
           preload={preload}
           className={`block h-auto w-full bg-black ${compact ? "min-h-[320px] object-contain" : "aspect-video max-h-[420px] object-contain"}`}
           onError={() => setVideoError("The browser could not play this video file.")}
           onLoadedData={() => setVideoError("")}
           onPlay={(e) => {
+            const video = e.currentTarget;
+            if (video.offsetParent === null) {
+              video.pause();
+              stopCaptionVoice(video);
+              return;
+            }
             logVideoPlay();
-            startNextRef.current(e.currentTarget);
+            startNextRef.current(video);
           }}
           onTimeUpdate={(e) => {
-            setTime(e.currentTarget.currentTime);
-            onTime?.(e.currentTarget.currentTime);
-            startNextRef.current(e.currentTarget);
+            const video = e.currentTarget;
+            if (video.offsetParent === null) {
+              video.pause();
+              stopCaptionVoice(video);
+              return;
+            }
+            setTime(video.currentTime);
+            onTime?.(video.currentTime);
+            startNextRef.current(video);
           }}
           onEnded={(e) => setTime(e.currentTarget.duration || e.currentTarget.currentTime)}
           onSeeked={(e) => {

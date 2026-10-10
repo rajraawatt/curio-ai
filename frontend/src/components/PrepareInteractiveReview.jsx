@@ -9,40 +9,6 @@ import { listen, narrate, stopNarration } from "../speech.js";
 
 const CLIP_SECONDS = 8;
 
-const NUCLEUS_PARTS = [
-  { id: "envelope", label: "Nuclear envelope", anchor: [0.12, 0.32] },
-  { id: "nucleolus", label: "Nucleolus", anchor: [0.4, 0.46] },
-  { id: "chromatin", label: "Chromatin", anchor: [0.72, 0.3] },
-  { id: "pores", label: "Nuclear pores", anchor: [0.22, 0.7] },
-  { id: "nucleoplasm", label: "Nucleoplasm", anchor: [0.55, 0.62] },
-];
-
-const RIBOSOME_PARTS = [
-  { id: "large_subunit", label: "Large subunit", anchor: [0.18, 0.36] },
-  { id: "small_subunit", label: "Small subunit", anchor: [0.58, 0.4] },
-  { id: "mrna", label: "mRNA path", anchor: [0.38, 0.72] },
-  { id: "exit", label: "Exit tunnel", anchor: [0.78, 0.62] },
-  { id: "binding", label: "Binding site", anchor: [0.48, 0.22] },
-];
-
-const RIBOSOME_MOCK = {
-  id: "ribosome",
-  label: "Ribosome",
-  reason: "Builds proteins from genetic instructions.",
-  glbUrl: "/generated/cell-mvp/mitochondria/model.glb",
-  color: "#ef6c00",
-  parts: RIBOSOME_PARTS,
-};
-
-const NUCLEUS_MOCK = {
-  id: "nucleus",
-  label: "Nucleus",
-  reason: "Control centre of the cell — stores DNA.",
-  glbUrl: "/generated/cell-mvp/nucleus/model.glb",
-  color: "#5c6bc0",
-  parts: NUCLEUS_PARTS,
-};
-
 const SUGGESTED = [
   "What is this part?",
   "What does this part do?",
@@ -60,15 +26,23 @@ function pointOnSphere(anchor, radius = 1) {
   );
 }
 
+/** Lesson labels from the Tripo/prepare asset. Anchors are tap targets on the fitted model. */
 function partsFor(asset) {
-  if (Array.isArray(asset?.parts) && asset.parts.length) return asset.parts;
-  return NUCLEUS_PARTS;
-}
-
-function withModel(asset, index) {
-  if (!asset) return null;
-  if (asset.id === "early_mammal_ancestor" || index === 1) return { ...asset, ...RIBOSOME_MOCK };
-  return { ...asset, ...NUCLEUS_MOCK, label: asset.label || "Nucleus" };
+  const raw = Array.isArray(asset?.parts) && asset.parts.length
+    ? asset.parts
+    : Array.isArray(asset?.labels)
+      ? asset.labels
+      : [];
+  if (!raw.length) {
+    return [{ id: "whole", label: asset?.label || "Whole model", anchor: [0.5, 0.45] }];
+  }
+  return raw.map((part, index) => ({
+    id: String(part.id || `part-${index}`),
+    label: String(part.label || part.text || `Part ${index + 1}`),
+    anchor: Array.isArray(part.anchor)
+      ? part.anchor
+      : [(index + 0.5) / raw.length, 0.32 + (index % 3) * 0.18],
+  }));
 }
 
 function nearestPart(point, parts) {
@@ -159,7 +133,7 @@ export function assetForTime(pack, time) {
       id: objectId || `scene-${index + 1}`,
       label: beats[index]?.title || `Scene ${index + 1}`,
     };
-  return withModel(asset, index);
+  return asset;
 }
 
 const PREVIEW_MODEL_TARGET = 3;
@@ -179,8 +153,6 @@ export function previewModelUrls(pack) {
     add(assetForTime(pack, i * CLIP_SECONDS)?.glbUrl);
   }
   for (const asset of pack?.assets || []) add(asset.glbUrl);
-  add(NUCLEUS_MOCK.glbUrl);
-  add(RIBOSOME_MOCK.glbUrl);
 
   return urls.slice(0, PREVIEW_MODEL_TARGET);
 }
@@ -449,23 +421,49 @@ export function PrepareInteractiveReview({ pack, language = "en", modelsReady = 
             </header>
 
             <div className="relative mt-3 h-[260px] bg-[#0b1220]">
-              <Canvas camera={{ position: [0, 0.4, 4.2], fov: 40 }} style={{ width: "100%", height: "100%" }}>
-                <color attach="background" args={["#0b1220"]} />
-                <ambientLight intensity={0.9} />
-                <directionalLight position={[3, 4, 2]} intensity={1.2} />
-                <Suspense fallback={null}>
-                  <InteractiveModel
-                    url={openAsset.glbUrl}
-                    parts={parts}
-                    selectedPartId={selectedPart?.id}
-                    onPartSelect={(part) => {
-                      setSelectedPart(part);
-                      setTutorError("");
-                    }}
-                  />
-                </Suspense>
-                <OrbitControls makeDefault enablePan={false} />
-              </Canvas>
+              {parts.length > 0 && (
+                <ul className="pointer-events-none absolute right-2 top-2 z-[2] m-0 flex max-w-[55%] list-none flex-col items-end gap-1 p-0">
+                  {parts.map((part) => (
+                    <li
+                      key={part.id}
+                      className={`rounded-full px-2 py-0.5 text-[0.72rem] font-extrabold shadow-sm ${
+                        part.id === selectedPart?.id ? "bg-[#EC4899] text-white" : "bg-white/95 text-[#1F2937]"
+                      }`}
+                    >
+                      {part.label}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {openAsset.glbUrl ? (
+                <Canvas
+                  camera={{ position: [0, 0.4, 4.2], fov: 40 }}
+                  dpr={[1, 1.5]}
+                  frameloop="demand"
+                  style={{ width: "100%", height: "100%" }}
+                  gl={{ antialias: true, powerPreference: "high-performance" }}
+                >
+                  <color attach="background" args={["#0b1220"]} />
+                  <ambientLight intensity={0.9} />
+                  <directionalLight position={[3, 4, 2]} intensity={1.2} />
+                  <Suspense fallback={null}>
+                    <InteractiveModel
+                      url={openAsset.glbUrl}
+                      parts={parts}
+                      selectedPartId={selectedPart?.id}
+                      onPartSelect={(part) => {
+                        setSelectedPart(part);
+                        setTutorError("");
+                      }}
+                    />
+                  </Suspense>
+                  <OrbitControls makeDefault enablePan={false} />
+                </Canvas>
+              ) : (
+                <div className="grid h-full place-items-center px-6 text-center text-sm font-bold text-[#94a3b8]">
+                  {openAsset.label || "This scene"} has no Tripo model yet.
+                </div>
+              )}
             </div>
 
             <div className="grid gap-3 p-4">

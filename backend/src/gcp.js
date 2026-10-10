@@ -89,20 +89,8 @@ function textFromGemini(data) {
   return parts.map((p) => p.text || "").join("").trim();
 }
 
-export async function geminiGenerate(
-  prompt,
-  { json = false, maxOutputTokens = 4096, temperature = 0.6 } = {},
-) {
+async function postGemini(body) {
   const model = geminiModel();
-  const body = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature,
-      maxOutputTokens,
-      ...(json ? { responseMimeType: "application/json" } : {}),
-    },
-  };
-
   let res;
   if (projectId()) {
     const url = `https://${location()}-aiplatform.googleapis.com/v1/projects/${projectId()}/locations/${location()}/publishers/google/models/${model}:generateContent`;
@@ -139,6 +127,43 @@ export async function geminiGenerate(
   return text;
 }
 
+export async function geminiGenerate(
+  prompt,
+  { json = false, maxOutputTokens = 4096, temperature = 0.6 } = {},
+) {
+  return postGemini({
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature,
+      maxOutputTokens,
+      ...(json ? { responseMimeType: "application/json" } : {}),
+    },
+  });
+}
+
+export async function geminiGenerateFromImage(
+  prompt,
+  { base64, mimeType = "image/png", json = false, maxOutputTokens = 1024, temperature = 0.2 } = {},
+) {
+  if (!base64) throw new Error("Image is required");
+  return postGemini({
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { inlineData: { mimeType, data: base64 } },
+          { text: prompt },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature,
+      maxOutputTokens,
+      ...(json ? { responseMimeType: "application/json" } : {}),
+    },
+  });
+}
+
 function extractInlineImage(data) {
   const parts = data?.candidates?.[0]?.content?.parts || [];
   for (const part of parts) {
@@ -153,12 +178,15 @@ function extractInlineImage(data) {
   return null;
 }
 
-export async function generateDiagram(prompt) {
+export async function generateDiagram(prompt, { instruction } = {}) {
   if (!projectId() && !apiKey()) {
     throw new Error("Image generation needs Vertex AI or a Gemini API key");
   }
   const model = process.env.IMAGEN_MODEL || "gemini-2.5-flash-image";
-  const text = `Generate one image. Educational classroom still, clear subject, clean studio lighting, no text, no watermark, no labels. ${prompt}`;
+  const lead =
+    instruction ||
+    "Generate one classroom still. A student should be able to name the single subject. Plain light background, centered, uncluttered, no text, no watermark, no labels.";
+  const text = `${lead} ${prompt}`;
   const body = {
     contents: [{ role: "user", parts: [{ text }] }],
     generationConfig: {

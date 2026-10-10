@@ -7,7 +7,7 @@ export const LESSON_CLIP_SECONDS = 8;
 export const MAX_LESSON_CLIPS = 2;
 export const MERGE_FADE_SECONDS = 0.65;
 /** Bump when encode flags change so stale/corrupt merges are rebuilt. */
-export const MERGE_REVISION = 4;
+export const MERGE_REVISION = 5;
 
 const MERGE_WIDTH = 1280;
 const MERGE_HEIGHT = 720;
@@ -43,7 +43,7 @@ export function buildMergedVideoMeta(videos, packId, fadeSec = MERGE_FADE_SECOND
         text: cue.text,
       });
     }
-    if (i < clips.length - 1) offset += LESSON_CLIP_SECONDS;
+    if (i < clips.length - 1) offset += LESSON_CLIP_SECONDS - fadeSec;
   }
 
   return {
@@ -116,15 +116,14 @@ export async function mergeLessonClips(inputPaths, destPath, { fadeSec = MERGE_F
   const dur0 = await probeMediaDurationSeconds(inputPaths[0]);
   const dur1 = await probeMediaDurationSeconds(inputPaths[1]);
   const offset = Math.max(0, Math.min(dur0 - 0.05, dur0 - fadeSec));
-  const delayMs = Math.round(offset * 1000);
   const durationSeconds = dur0 + dur1 - fadeSec;
   const filter = [
     normalizeVideoFilter(0, "v0"),
     normalizeVideoFilter(1, "v1"),
     `[v0][v1]xfade=transition=fade:duration=${fadeSec}:offset=${offset}[v]`,
-    `[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=out:st=${offset}:d=${fadeSec}[a0]`,
-    `[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=${fadeSec},adelay=${delayMs}|${delayMs}[a1]`,
-    `[a0][a1]amix=inputs=2:duration=longest:dropout_transition=0[a]`,
+    `[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=0:${offset},asetpts=PTS-STARTPTS[a0]`,
+    `[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=0:${dur1},asetpts=PTS-STARTPTS[a1]`,
+    `[a0][a1]concat=n=2:v=0:a=1[a]`,
   ].join(";");
 
   const dir = path.dirname(destPath);
@@ -209,12 +208,21 @@ export async function ensureMergedLessonVideo(pack, { packId, generatedRoot }) {
   if (!pack?.videos || pack.videos.length < 2) return pack;
 
   const videoDir = `${generatedRoot}/${packId}/video`;
-  const destPath = `${videoDir}/lesson-merged.mp4`;
-  const posterPath = `${videoDir}/lesson-merged-poster.jpg`;
+  const previous = pack.mergedVideo || null;
+  const previousName = String(previous?.url || "").split("/").pop().split("?")[0];
+  const slug = String(pack.topic || "lesson")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "lesson";
+  const mergedBase = previousName.endsWith(".mp4")
+    ? previousName.replace(/\.mp4$/, "")
+    : `lesson-${slug}-${Date.now()}`;
+  const destPath = `${videoDir}/${mergedBase}.mp4`;
+  const posterPath = `${videoDir}/${mergedBase}-poster.jpg`;
   let meta = buildMergedVideoMeta(pack.videos, packId);
   if (!meta) return pack;
 
-  const previous = pack.mergedVideo || null;
   const fileExists = await fs.access(destPath).then(() => true).catch(() => false);
   const needsRemerge =
     !fileExists ||
@@ -234,8 +242,8 @@ export async function ensureMergedLessonVideo(pack, { packId, generatedRoot }) {
       mergedVideo: {
         ...previous,
         ...meta,
-        url: `/generated/${packId}/video/lesson-merged.mp4?t=${stamp}`,
-        posterUrl: `/generated/${packId}/video/lesson-merged-poster.jpg?t=${stamp}`,
+        url: `/generated/${packId}/video/${mergedBase}.mp4?t=${stamp}`,
+        posterUrl: `/generated/${packId}/video/${mergedBase}-poster.jpg?t=${stamp}`,
       },
       videoDurationSec: previous?.durationSeconds || meta.durationSeconds,
       mergeError: undefined,
@@ -254,8 +262,8 @@ export async function ensureMergedLessonVideo(pack, { packId, generatedRoot }) {
     meta = {
       ...meta,
       durationSeconds: info.durationSeconds,
-      url: `/generated/${packId}/video/lesson-merged.mp4?t=${stamp}`,
-      posterUrl: `/generated/${packId}/video/lesson-merged-poster.jpg?t=${stamp}`,
+      url: `/generated/${packId}/video/${mergedBase}.mp4?t=${stamp}`,
+      posterUrl: `/generated/${packId}/video/${mergedBase}-poster.jpg?t=${stamp}`,
     };
     return { ...pack, mergedVideo: meta, videoDurationSec: meta.durationSeconds, mergeError: undefined };
   } catch (err) {

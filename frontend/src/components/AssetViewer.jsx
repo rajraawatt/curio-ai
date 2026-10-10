@@ -1,13 +1,14 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, useGLTF, Center } from "@react-three/drei";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { freshMediaUrl } from "../mediaReady.js";
 
 function GlbMesh({ url }) {
   const { scene } = useGLTF(url);
+  const object = useMemo(() => scene.clone(true), [scene]);
   return (
     <Center>
-      <primitive object={scene.clone()} />
+      <primitive object={object} />
     </Center>
   );
 }
@@ -84,7 +85,40 @@ function StandIn({ color = "#7C3AED" }) {
 }
 
 /** Real Tripo model only. A failed run has no mesh to turn. */
-export function AssetViewer({ mesh, label, glbUrl }) {
+function PartLabels({ labels }) {
+  const names = (labels || []).map((item) => item?.text || item?.label).filter(Boolean);
+  if (!names.length) return null;
+  return (
+    <ul className="pointer-events-none absolute right-2 top-2 z-[2] m-0 flex max-w-[55%] list-none flex-col items-end gap-1 p-0">
+      {names.map((name) => (
+        <li
+          key={name}
+          className="rounded-full bg-white/95 px-2 py-0.5 text-[0.72rem] font-extrabold text-[#1F2937] shadow-sm"
+        >
+          {name}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function AssetViewer({ mesh, label, glbUrl, labels }) {
+  const frameRef = useRef(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const node = frameRef.current;
+    if (!node || !glbUrl) return undefined;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setVisible(true);
+      },
+      { rootMargin: "240px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [glbUrl]);
+
   if (!glbUrl) {
     const failed = mesh?.status === "error" || mesh?.generator === "tripo-failed";
     return (
@@ -99,20 +133,27 @@ export function AssetViewer({ mesh, label, glbUrl }) {
   }
 
   return (
-    <div className="relative z-0 h-[260px] w-full min-w-0 overflow-hidden bg-[#0b1220]">
-      <Canvas
-        camera={{ position: [0, 0.8, 4.2], fov: 40 }}
-        style={{ width: "100%", height: "100%", display: "block" }}
-        gl={{ antialias: true, alpha: false }}
-      >
-        <color attach="background" args={["#0b1220"]} />
-        <ambientLight intensity={0.85} />
-        <directionalLight position={[4, 6, 2]} intensity={1.35} />
-        <Suspense fallback={<StandIn color={mesh?.color || "#7C3AED"} />}>
-          <GlbMesh url={glbUrl} />
-        </Suspense>
-        <OrbitControls makeDefault enablePan enableZoom enableRotate minDistance={0.6} maxDistance={14} target={[0, 0, 0]} />
-      </Canvas>
+    <div ref={frameRef} className="relative z-0 h-[260px] w-full min-w-0 overflow-hidden bg-[#0b1220]">
+      {visible ? (
+        <Canvas
+          camera={{ position: [0, 0.8, 4.2], fov: 40 }}
+          dpr={[1, 1.5]}
+          frameloop="demand"
+          style={{ width: "100%", height: "100%", display: "block" }}
+          gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
+        >
+          <color attach="background" args={["#0b1220"]} />
+          <ambientLight intensity={0.85} />
+          <directionalLight position={[4, 6, 2]} intensity={1.35} />
+          <Suspense fallback={<StandIn color={mesh?.color || "#7C3AED"} />}>
+            <GlbMesh url={glbUrl} />
+          </Suspense>
+          <OrbitControls makeDefault enablePan enableZoom enableRotate minDistance={0.6} maxDistance={14} target={[0, 0, 0]} />
+        </Canvas>
+      ) : (
+        <div className="grid h-full place-items-center text-sm font-bold text-[#94a3b8]">Loading model…</div>
+      )}
+      <PartLabels labels={labels} />
       <span className="pointer-events-none absolute bottom-2.5 left-2.5 z-[2] rounded-full bg-[rgba(124,58,237,0.85)] px-2.5 py-1 text-[0.75rem] text-white">
         {label} · drag to turn
       </span>

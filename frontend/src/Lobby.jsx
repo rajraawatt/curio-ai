@@ -66,7 +66,7 @@ export function Lobby() {
         )}
       </section>
 
-      <section className="relative z-10 mx-auto grid max-w-6xl gap-4 px-6 pb-10 pt-6 md:grid-cols-3" aria-label="Enter the classroom">
+      <section className="relative z-10 mx-auto grid max-w-6xl gap-4 px-6 pb-10 pt-6 md:grid-cols-2 xl:grid-cols-4" aria-label="Enter the classroom">
         <a
           className="flex min-h-[280px] flex-col rounded-[32px] border-[3px] border-[rgba(124,58,237,0.18)] bg-gradient-to-br from-violet-soft to-[#f8f4ed] p-6 text-ink no-underline shadow-[0_10px_0_rgba(124,58,237,0.08)] transition hover:-translate-y-0.5"
           href="/teacher"
@@ -106,6 +106,15 @@ export function Lobby() {
           <span className="text-[0.72rem] font-extrabold uppercase tracking-[0.08em] text-pink">Studio</span>
           <strong className="mt-3 text-xl font-black">Prepare assets</strong>
           <em className="mt-2 font-bold not-italic text-muted">Build the lesson video and 3D pack before class.</em>
+        </a>
+
+        <a
+          className="flex min-h-[280px] flex-col rounded-[32px] border-[3px] border-[rgba(124,58,237,0.18)] bg-gradient-to-br from-[#1f2937] to-[#111827] p-6 text-white no-underline shadow-[0_10px_0_rgba(17,24,39,0.2)] transition hover:-translate-y-0.5"
+          href="/studio"
+        >
+          <span className="text-[0.72rem] font-extrabold uppercase tracking-[0.08em] text-lilac">Chat studio</span>
+          <strong className="mt-3 text-xl font-black">Ask for a lesson</strong>
+          <em className="mt-2 font-bold not-italic text-white/70">A video, stills, and labelled parts from one prompt.</em>
         </a>
       </section>
     </main>

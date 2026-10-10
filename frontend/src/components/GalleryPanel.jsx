@@ -215,7 +215,9 @@ export function GalleryPanel({ onExit }) {
                 {treeClass?.label} / {subject?.label || "Subject"}
               </h2>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
-                {packs.map((pack) => (
+                {packs.map((pack) => {
+                  const modelCount = pack.assets?.filter((asset) => asset.glbUrl).length || 0;
+                  return (
                   <button
                     key={pack.id}
                     type="button"
@@ -225,12 +227,13 @@ export function GalleryPanel({ onExit }) {
                     <PackIcon />
                     <strong className="font-black">{pack.topic}</strong>
                     <span className="text-[0.82rem] font-bold text-[#6B7280]">
-                      {(pack.assets?.length || 0) > 0 ? `${pack.assets.length} models` : "No 3D"}
+                      {modelCount ? `${modelCount} models` : "No 3D"}
                       {pack.mergedVideo ? " · video" : ""}
                       {pack.shared ? " · shared" : ""}
                     </span>
                   </button>
-                ))}
+                  );
+                })}
                 {!packs.length && (
                   <p className="my-2 font-bold text-[#6B7280]">
                     Empty folder — generate or Save to Gallery from Prepare.

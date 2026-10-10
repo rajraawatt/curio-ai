@@ -7,6 +7,7 @@ import { generateDiagram, healthInfo, startVeoClip, synthesizeSpeech } from "./g
 import { prepareCellAssets, readCellPack, MOCK_CELL_SUMMARY } from "./prepareAssets.js";
 import { lessonFromBody } from "./preparePrompt.js";
 import { askModelTutor } from "./modelTutor.js";
+import { generateStudioLesson } from "./studioGenerate.js";
 import {
   getGalleryLibrary,
   getLearningForClass,
@@ -215,8 +216,8 @@ app.post("/api/prepare/assets", async (req, res) => {
       topic: pack.topic || lesson.topic || null,
     };
     await rememberLastPrepare(enriched).catch(() => {});
-    await savePackToGallery({ classId, subjectId, pack: enriched }).catch((err) => {
-      console.warn("[gallery] auto-save failed", err.message);
+    await sharePackToLearning({ classId, subjectId, pack: enriched }).catch((err) => {
+      console.warn("[gallery] auto-share failed", err.message);
     });
     return enriched;
   }
@@ -269,6 +270,35 @@ app.post("/api/prepare/assets", async (req, res) => {
   } catch (err) {
     console.error("[prepare]", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/studio/generate", async (req, res) => {
+  const prompt = String(req.body?.prompt || "").trim();
+  if (!prompt) return res.status(400).json({ error: "Prompt is required" });
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  try {
+    send("status", { notice: "Studio stream started" });
+    const session = await generateStudioLesson({
+      prompt,
+      onProgress: async ({ notice, session: partial }) => {
+        if (notice) send("status", { notice });
+        if (partial) send("session", { session: partial });
+      },
+    });
+    send("done", { ok: true, session });
+  } catch (err) {
+    console.error("[studio]", err);
+    send("error", { error: err.message });
+  } finally {
+    res.end();
   }
 });
 

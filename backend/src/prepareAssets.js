@@ -166,15 +166,21 @@ function normalizePlan(parsed, objectLimit = 2) {
   const rawObjects = Array.isArray(parsed?.objects) ? parsed.objects : fallback.objects;
   const objects = rawObjects.slice(0, objectLimit).map((object, index) => {
     const fb = fallback.objects[index] || fallback.objects[0];
-    const labels = Array.isArray(object.labels)
+    const fromModel = Array.isArray(object.labels)
       ? object.labels
           .slice(0, 4)
           .map((l, i) => ({
             id: slug(l.id || l.text) || `label_${i}`,
-            text: String(l.text || "").slice(0, 40),
+            text: String(l.text || l.label || "").slice(0, 40),
           }))
           .filter((l) => l.text)
-      : fb.labels;
+      : [];
+    const labels = fromModel.length
+      ? fromModel
+      : [
+          { id: "outer", text: "Outside" },
+          { id: "inner", text: "Inside" },
+        ];
     return {
       id: slug(object.id) || fb.id,
       label: String(object.label || fb.label).slice(0, 60),
@@ -213,7 +219,7 @@ function normalizePlan(parsed, objectLimit = 2) {
       captions: normalizeCaptions(null, o.reason),
       durationHintSec: 8,
       objectId: o.id,
-      videoPrompt: `${o.imagePrompt}. Subtle camera move, educational science video, no text, no labels`,
+        videoPrompt: `${o.imagePrompt}. Same object, one slow obvious motion a student can describe, no text, no labels`,
     }));
   }
 
@@ -235,10 +241,10 @@ Return JSON only (no markdown):
     {
       "id": "snake_case",
       "title": "short title",
-      "narration": { "en": "one short sentence", "hi": "एक छोटा वाक्य", "es": "una frase corta" },
+      "narration": { "en": "A plant cell has a wall that holds it in shape.", "hi": "पादप कोशिका की दीवार उसे आकार में रखती है।", "es": "La célula vegetal tiene una pared que le da forma." },
       "captions": [
-        { "atSec": 0, "text": { "en": "≤8 words", "hi": "≤8 शब्द", "es": "≤8 palabras" } },
-        { "atSec": 4, "text": { "en": "≤8 words", "hi": "≤8 शब्द", "es": "≤8 palabras" } }
+        { "atSec": 0, "text": { "en": "This is a plant cell.", "hi": "यह एक पादप कोशिका है।", "es": "Esta es una célula vegetal." } },
+        { "atSec": 4, "text": { "en": "Its wall holds the shape.", "hi": "इसकी दीवार आकार रखती है।", "es": "Su pared mantiene la forma." } }
       ],
       "durationHintSec": 8,
       "objectId": "matching_object_id",
@@ -259,13 +265,20 @@ Return JSON only (no markdown):
 }
 
 Rules:
-- Exactly ${objectLimit} objects and ${objectLimit} beats, in story order.
-- Each beat.objectId must match an object.id.
-- imagePrompt and videoPrompt stay in English and under 160 characters.
-- narration and captions need real en/hi/es, but keep each line short.
+- The teacher may have written only a few keywords. Make one simple cause-and-effect a student can retell in one sentence.
+- Exactly ${objectLimit} objects and ${objectLimit} beats, in story order. Scene 1 is before. Scene 2 is what changed.
+- Each beat.objectId must match an object.id. The video must animate that same object, not a new scene.
+- imagePrompt: one recognizable object, centered, plain light background, no clutter. English, under 160 characters. This picture is the student still and the first frame of the animation.
+- videoPrompt: the same object doing one slow, obvious action. English, under 160 characters. No new characters, no on-screen text.
+- The script is the narration and the two captions. A student hears it. Write it so they can explain the idea afterward. The plant-cell lines in the schema are only a pattern. Write the teacher's topic, not that example.
+- Scene 1 script: first caption names the object ("This is a plant cell."). Second caption gives one fact ("A wall holds it in shape."). Narration is those two ideas in one sentence.
+- Scene 2 script: first caption says what changes. Second caption says why it matters. Narration ties the change to the first scene.
+- Match the age group. Ages 8–10: words a 9-year-old says. Ages 11–14: one classroom sentence, no jargon. Ages 15–18: one precise word is allowed only if the next words explain it.
+- Real en/hi/es. Hindi and Spanish must explain the same idea, not copy English spelling. Each caption is 8 words or fewer. No slogans, no poetry, no "behold".
+- Every object needs 2 to 4 labels. Each label is a real part of that object a student can point at on the 3D model. Do not leave labels empty.
 - No trailing commentary outside the JSON object.`;
 
-  const compactPrompt = `Return ONLY compact JSON for a ${objectLimit}-beat classroom lesson about:
+  const compactPrompt = `Return ONLY compact JSON. The teacher wrote only a few words. Make one idea a student can explain in one sentence, as ${objectLimit} scenes: scene 1 before, scene 2 the change. Script: scene 1 captions name the object then give one fact; scene 2 captions say what changes then why it matters. Narration is one spoken sentence per scene, everyday words for the age group, real en/hi/es, captions ≤8 words. Each still is one object on a plain background. Each video animates that same object with one slow motion. 2 to 4 real part labels per object.
 """
 ${teacherPrompt}
 """
@@ -292,7 +305,7 @@ Exactly ${objectLimit} beats and ${objectLimit} objects. Short strings only.`;
 }
 
 async function writeStill(assetDir, object) {
-  const imagePrompt = `${object.imagePrompt}. One clear subject that can become a 3D model, detailed, no text, no labels, no watermark. Keep the place and moment of the story.`;
+  const imagePrompt = `${object.imagePrompt}. One object a student can name at a glance, centered, plain light background, simple and uncluttered, no text, no labels, no watermark. This picture is the still and the first frame of a short animation.`;
   const dataUrl = await generateDiagram(imagePrompt);
   const { mimeType, base64 } = parseDataUrl(dataUrl);
   const ext = mimeType.includes("jpeg") || mimeType.includes("jpg") ? "jpg" : "png";
@@ -480,14 +493,9 @@ export async function prepareCellAssets({
     labels: object.labels,
     previewUrl: null,
     sourceImageUrl: null,
-    meshUrl: `/generated/${PACK_ID}/${object.id}/mesh.json`,
+    meshUrl: null,
     glbUrl: null,
-    mesh: {
-      generator: "pending",
-      status: "planned",
-      color: object.color,
-      ...object.mesh,
-    },
+    mesh: null,
   }));
   await emit("planned");
 
@@ -518,12 +526,9 @@ export async function prepareCellAssets({
       imagePrompt: still.imagePrompt,
       previewUrl: `/generated/${PACK_ID}/${object.id}/${still.sourceImageName}?t=${Date.now()}`,
       sourceImageUrl: `/generated/${PACK_ID}/${object.id}/${still.sourceImageName}?t=${Date.now()}`,
-      mesh: {
-        generator: "pending",
-        status: "still-ready",
-        color: object.color,
-        ...object.mesh,
-      },
+      meshUrl: null,
+      glbUrl: null,
+      mesh: null,
     };
     await emit("image-ready");
   }
@@ -570,8 +575,15 @@ export async function prepareCellAssets({
   }
 
   if (videos.length >= 2) {
-    const destPath = path.join(videoDir, "lesson-merged.mp4");
-    const posterPath = path.join(videoDir, "lesson-merged-poster.jpg");
+    const stamp = Date.now();
+    const slug = String(lesson?.topic || "lesson")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "lesson";
+    const mergedBase = `lesson-${slug}-${stamp}`;
+    const destPath = path.join(videoDir, `${mergedBase}.mp4`);
+    const posterPath = path.join(videoDir, `${mergedBase}-poster.jpg`);
     const clipPaths = videos.slice(0, MAX_LESSON_CLIPS).map((clip) => {
       const name = clip.url.split("/").pop().split("?")[0];
       return path.join(videoDir, name);
@@ -581,12 +593,11 @@ export async function prepareCellAssets({
       const info = await mergeLessonClips(clipPaths, destPath, { fadeSec: MERGE_FADE_SECONDS });
       // Poster is best-effort; never leave mergedVideo pointing at a missing/corrupt file.
       await writeMergedPoster(destPath, posterPath).catch(() => fs.unlink(posterPath).catch(() => {}));
-      const stamp = Date.now();
       mergedVideo = {
         ...buildMergedVideoMeta(videos, PACK_ID, MERGE_FADE_SECONDS),
         durationSeconds: info.durationSeconds,
-        url: `/generated/${PACK_ID}/video/lesson-merged.mp4?t=${stamp}`,
-        posterUrl: `/generated/${PACK_ID}/video/lesson-merged-poster.jpg?t=${stamp}`,
+        url: `/generated/${PACK_ID}/video/${mergedBase}.mp4?t=${stamp}`,
+        posterUrl: `/generated/${PACK_ID}/video/${mergedBase}-poster.jpg?t=${stamp}`,
       };
       steps.push(`Merged 2 clips into one ${info.durationSeconds.toFixed(1)}s lesson video`);
       await emit("merge-ready", { notice: "One lesson video ready (~16s)" });
@@ -617,11 +628,13 @@ export async function prepareCellAssets({
           color: object.color,
           glb: tripo.glbName,
           sourceImage: still.sourceImageName,
+          labels: object.labels,
         };
         await fs.writeFile(path.join(assetDir, "mesh.json"), JSON.stringify(meshRecipe, null, 2), "utf8");
         assets[i] = {
           ...assets[i],
           glbUrl: `/generated/${PACK_ID}/${object.id}/${tripo.glbName}?t=${Date.now()}`,
+          meshUrl: `/generated/${PACK_ID}/${object.id}/mesh.json`,
           mesh: meshRecipe,
           tripoTaskId: tripo.taskId,
           credits: tripo.credits,
@@ -635,12 +648,14 @@ export async function prepareCellAssets({
           status: "error",
           error: err.message,
           color: object.color,
-          sourceImage: still.sourceImageName,
-          ...object.mesh,
+          sourceImage: still?.sourceImageName || null,
+          glb: null,
         };
         await fs.writeFile(path.join(assetDir, "mesh.json"), JSON.stringify(meshRecipe, null, 2), "utf8");
         assets[i] = {
           ...assets[i],
+          glbUrl: null,
+          meshUrl: `/generated/${PACK_ID}/${object.id}/mesh.json`,
           mesh: meshRecipe,
           error: err.message,
         };
@@ -650,17 +665,12 @@ export async function prepareCellAssets({
     }
   } else {
     for (let i = 0; i < assets.length; i++) {
-      const object = plan.objects[i];
-      const assetDir = path.join(packDir, object.id);
-      const meshRecipe = {
-        generator: "still-only",
-        status: "mock",
-        note: "Tripo skipped — still ready for later 3D",
-        color: object.color,
-        ...object.mesh,
+      assets[i] = {
+        ...assets[i],
+        glbUrl: null,
+        meshUrl: null,
+        mesh: null,
       };
-      await fs.writeFile(path.join(assetDir, "mesh.json"), JSON.stringify(meshRecipe, null, 2), "utf8");
-      assets[i].mesh = meshRecipe;
     }
     steps.push("Tripo skipped");
     await emit("tripo-skipped");

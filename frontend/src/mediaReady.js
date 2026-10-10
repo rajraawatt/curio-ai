@@ -38,9 +38,14 @@ export async function ensureMediaReachable(pack, { tries = 10, delayMs = 350 } =
   return false;
 }
 
-/** Cache-bust a media URL so the browser does not reuse a failed HTML/404 response. */
-export function freshMediaUrl(url, token = Date.now()) {
+/** Keep the pack's own ?t= stamp and add a retry token. Dropping the stamp made every lesson share lesson-merged.mp4?v=0, so the browser replayed the previous video. */
+export function freshMediaUrl(url, token) {
   if (!url) return "";
-  const base = String(url).split("?")[0];
-  return `${base}?v=${token}`;
+  const [base, query] = String(url).split("?");
+  const params = new URLSearchParams(query || "");
+  if (token !== undefined && token !== null && String(token) !== "") {
+    params.set("v", String(token));
+  }
+  const next = params.toString();
+  return next ? `${base}?${next}` : base;
 }

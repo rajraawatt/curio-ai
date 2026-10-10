@@ -7,10 +7,10 @@ export const LANGUAGES = {
 };
 
 export const STORY_LINE =
-  "Tell one story that answers the topic across two 8-second scenes, played in order. Keywords are ingredients of that story, not separate unrelated objects. Scene 1 shows the world before. Scene 2 shows what caused the change and how it ended. Use simple words for the age group.";
+  "The teacher may write only a few words. Turn those words into one idea a student can say back in a single sentence. Tell that idea across two 8-second scenes, played in order. Keywords are ingredients of that story, not separate unrelated objects. Scene 1 shows the world before. Scene 2 shows what caused the change and how it ended. Use everyday words for the age group.";
 
 export const VIDEO_STYLE =
-  "HD video that feels immersive. Show this story moment happening, with a gentle camera move. No on-screen text, no labels, no watermark.";
+  "HD video that feels immersive. One slow, obvious motion so a student can see what changed. Gentle camera move. No on-screen text, no labels, no watermark. No dialogue, no narration, no voiceover, and no people talking.";
 
 export const HOUSE_STYLE = `${STORY_LINE} ${VIDEO_STYLE}`;
 
@@ -32,7 +32,7 @@ export function composeTeacherPrompt({ topic, ageGroup, keywords, language } = {
   const prompt = [
     `Topic: ${cleanTopic}`,
     `Student age group: ${age}`,
-    `Keywords: ${words.length ? words.join(", ") : "none"}`,
+    `Keywords: ${words.length ? words.join(", ") : "none. Use the topic words as the whole lesson."}`,
     `Narration language: ${LANGUAGES[lang]}. Also write narration in English, Hindi, and Spanish.`,
     HOUSE_STYLE,
   ].join("\n");

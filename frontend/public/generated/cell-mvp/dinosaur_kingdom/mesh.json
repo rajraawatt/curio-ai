@@ -1,9 +1,5 @@
 {
-  "generator": "tripo-failed",
-  "status": "error",
-  "error": "Tripo /generation/image-to-model failed: You don't have enough credit to create this task",
-  "color": "#6B8E23",
-  "sourceImage": "source.png",
-  "type": "group_of_dinosaurs",
-  "radius": 1
+  "status": "empty",
+  "generator": null,
+  "glb": null
 }

@@ -1,8 +1,5 @@
 {
-  "generator": "still-only",
-  "status": "mock",
-  "note": "Tripo skipped — still ready for later 3D",
-  "color": "#FF5722",
-  "type": "sphere",
-  "radius": 1.2
+  "status": "empty",
+  "generator": null,
+  "glb": null
 }

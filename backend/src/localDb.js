@@ -42,8 +42,8 @@ async function fileExists(filePath) {
 /** Build Animal Cell pack from files already in the repo under public/generated. */
 export async function buildSeedPackFromCodebase() {
   const packDir = path.join(GENERATED_ROOT, PACK_ID);
-  const videoPath = path.join(packDir, "video/lesson-merged.mp4");
-  const posterPath = path.join(packDir, "video/lesson-merged-poster.jpg");
+  const videoPath = path.join(packDir, "video/lesson-animal-cell.mp4");
+  const posterPath = path.join(packDir, "video/lesson-animal-cell-poster.jpg");
   const nucleusGlb = path.join(packDir, "nucleus/model.glb");
   const mitoGlb = path.join(packDir, "mitochondria/model.glb");
 
@@ -69,9 +69,9 @@ export async function buildSeedPackFromCodebase() {
       ? {
           id: "lesson_merged",
           merged: true,
-          url: `/generated/${PACK_ID}/video/lesson-merged.mp4?t=${stamp}`,
+          url: `/generated/${PACK_ID}/video/lesson-animal-cell.mp4?t=${stamp}`,
           posterUrl: hasPoster
-            ? `/generated/${PACK_ID}/video/lesson-merged-poster.jpg?t=${stamp}`
+            ? `/generated/${PACK_ID}/video/lesson-animal-cell-poster.jpg?t=${stamp}`
             : null,
           durationSeconds: 15.35,
         }

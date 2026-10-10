@@ -149,20 +149,15 @@ async function ensureLoaded() {
     const clean = sanitizeGalleryPack(seed);
     if (clean) {
       library.packs.push(clean);
-      if (!library.sharedToLearning["6a"]?.includes(clean.id)) {
-        library.sharedToLearning["6a"] = [clean.id, ...(library.sharedToLearning["6a"] || [])];
-      }
     }
   }
 
-  // Always keep Animal Cell seed present for mock demos.
+  // Keep the Animal Cell seed in the gallery. Do not auto-share it:
+  // its old video path was the shared lesson file, so students saw a new video with old stills.
   if (seed) {
     const clean = sanitizeGalleryPack(seed);
     if (clean && !library.packs.some((p) => p.id === clean.id)) {
       library.packs.unshift(clean);
-      if (!library.sharedToLearning["6a"]?.includes(clean.id)) {
-        library.sharedToLearning["6a"] = [clean.id, ...(library.sharedToLearning["6a"] || [])];
-      }
     }
   }
 

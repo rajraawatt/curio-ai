@@ -61,7 +61,7 @@ export function PackMediaView({
                 >
                   <div className="grid min-h-[260px] grid-cols-1 items-stretch border-b-2 border-[#F0EAE0] sm:grid-cols-2">
                     <StillViewer stillUrl={stillUrl} label={asset.label} />
-                    <AssetViewer mesh={asset.mesh} label={asset.label} glbUrl={asset.glbUrl} />
+                    <AssetViewer mesh={asset.mesh} label={asset.label} glbUrl={asset.glbUrl} labels={asset.labels} />
                   </div>
                   <div className="relative z-[1] grid gap-2 p-3">
                     <h3 className="m-0 text-base font-black">{asset.label}</h3>

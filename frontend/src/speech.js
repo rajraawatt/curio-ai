@@ -16,7 +16,7 @@ function duckCaptionVideo(video) {
   if (!video) return;
   captionVideo = video;
   captionVolume = video.volume;
-  video.volume = 0.45;
+  video.volume = 0;
 }
 
 function lectureRate(ageGroup) {
