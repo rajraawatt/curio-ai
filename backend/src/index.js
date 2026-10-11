@@ -288,8 +288,8 @@ app.post("/api/studio/generate", async (req, res) => {
     send("status", { notice: "Studio stream started" });
     const session = await generateStudioLesson({
       prompt,
-      onProgress: async ({ notice, session: partial }) => {
-        if (notice) send("status", { notice });
+      onProgress: async ({ notice, progress, session: partial }) => {
+        if (notice || progress != null) send("status", { notice, progress });
         if (partial) send("session", { session: partial });
       },
     });

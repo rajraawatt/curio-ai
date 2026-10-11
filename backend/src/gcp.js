@@ -178,7 +178,7 @@ function extractInlineImage(data) {
   return null;
 }
 
-export async function generateDiagram(prompt, { instruction } = {}) {
+export async function generateDiagram(prompt, { instruction, aspectRatio } = {}) {
   if (!projectId() && !apiKey()) {
     throw new Error("Image generation needs Vertex AI or a Gemini API key");
   }
@@ -187,12 +187,16 @@ export async function generateDiagram(prompt, { instruction } = {}) {
     instruction ||
     "Generate one classroom still. A student should be able to name the single subject. Plain light background, centered, uncluttered, no text, no watermark, no labels.";
   const text = `${lead} ${prompt}`;
-  const body = {
-    contents: [{ role: "user", parts: [{ text }] }],
-    generationConfig: {
+  const buildBody = (useAspect) => {
+    const generationConfig = {
       responseModalities: ["TEXT", "IMAGE"],
       candidateCount: 1,
-    },
+    };
+    if (useAspect && aspectRatio) generationConfig.imageConfig = { aspectRatio };
+    return {
+      contents: [{ role: "user", parts: [{ text }] }],
+      generationConfig,
+    };
   };
 
   let lastError = "";
@@ -205,36 +209,42 @@ export async function generateDiagram(prompt, { instruction } = {}) {
     : [{ kind: "apiKey" }];
 
   for (const attempt of attempts) {
+    const passes = aspectRatio ? [true, false] : [false];
     let res;
-    if (attempt.kind === "vertex") {
-      const host =
-        attempt.loc === "global"
-          ? "https://aiplatform.googleapis.com"
-          : `https://${attempt.loc}-aiplatform.googleapis.com`;
-      const url = `${host}/v1/projects/${projectId()}/locations/${attempt.loc}/publishers/google/models/${model}:generateContent`;
-      const token = await accessToken();
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-    } else {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey()}`;
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+    let data;
+    for (const useAspect of passes) {
+      const body = buildBody(useAspect);
+      if (attempt.kind === "vertex") {
+        const host =
+          attempt.loc === "global"
+            ? "https://aiplatform.googleapis.com"
+            : `https://${attempt.loc}-aiplatform.googleapis.com`;
+        const url = `${host}/v1/projects/${projectId()}/locations/${attempt.loc}/publishers/google/models/${model}:generateContent`;
+        const token = await accessToken();
+        res = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+      } else {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey()}`;
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      }
+      data = await res.json().catch(() => ({}));
+      if (res.ok) break;
+      lastError = data?.error?.message || `Image generation failed (${res.status}) @ ${attempt.loc || "apiKey"}`;
+      const aspectRejected = useAspect && /aspect|imageConfig|unknown name/i.test(lastError);
+      if (!aspectRejected) break;
     }
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      lastError = data?.error?.message || `Image generation failed (${res.status}) @ ${attempt.loc || "apiKey"}`;
-      continue;
-    }
+    if (!res.ok) continue;
 
     const image = extractInlineImage(data);
     if (image) return `data:${image.mime};base64,${image.data}`;
@@ -344,7 +354,9 @@ export async function startVeoGeneration({
   mimeType = "image/png",
   durationSeconds = 8,
   aspectRatio = "16:9",
+  resolution = null,
   storageUri = null,
+  generateAudio = true,
 } = {}) {
   if (!projectId()) throw new Error("Veo needs GOOGLE_CLOUD_PROJECT and Application Default Credentials");
   const model = process.env.VEO_MODEL || "veo-3.1-fast-generate-001";
@@ -363,7 +375,9 @@ export async function startVeoGeneration({
     aspectRatio,
     durationSeconds: Number(durationSeconds) || 8,
     sampleCount: 1,
+    generateAudio: Boolean(generateAudio),
   };
+  if (resolution) parameters.resolution = resolution;
   const bucket = storageUri || (process.env.GCS_BUCKET ? `gs://${process.env.GCS_BUCKET.replace(/^gs:\/\//, "")}/curio-veo/` : null);
   if (bucket) parameters.storageUri = bucket.endsWith("/") ? bucket : `${bucket}/`;
 
@@ -532,12 +546,18 @@ export async function generateVeoClipFromImage({
   mimeType = "image/png",
   destPath,
   durationSeconds = 8,
+  generateAudio = true,
+  aspectRatio = "16:9",
+  resolution = null,
 }) {
   const operationName = await startVeoGeneration({
     prompt,
     imageBase64,
     mimeType,
     durationSeconds,
+    generateAudio,
+    aspectRatio,
+    resolution,
   });
   return waitForVeoAndSave(operationName, destPath);
 }

@@ -9,10 +9,11 @@ import { writeMergedPoster } from "./mergeLessonVideo.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GENERATED_ROOT = path.join(__dirname, "../../frontend/public/generated");
 
-export const STUDIO_MOMENTS = 5;
-export const STUDIO_IMAGES = 4;
+export const STUDIO_MOMENTS = 2;
+export const STUDIO_IMAGES = 2;
 const CLIP_SECONDS = 8;
-const IMAGE_KINDS = ["wide", "angle", "part", "detail"];
+const JOIN_FADE_SECONDS = 0.4;
+const IMAGE_KINDS = ["wide", "detail"];
 
 const STUDIO_STILL_INSTRUCTION = `Visual style: photorealistic cinematic realism.
 Generate an exceptionally realistic, high-detail, cinematic image of the requested subject. It should look like a premium real-world photograph or a high-end photorealistic 3D render from an expert visual effects studio, never like a cartoon, illustration, flat graphic, or generic AI artwork.
@@ -20,10 +21,11 @@ Reproduce believable proportions, accurate structures, authentic real-world deta
 Use cinematic, physically believable lighting: natural highlights, soft shadows, realistic reflections, and subtle atmospheric depth. Dramatic but controlled contrast, realistic color, no excessive glow, neon, oversaturation, or fantasy effects.
 Match the field: aerospace photography for rockets, realistic medical visualization for anatomy, architectural photography for buildings, industrial product photography for machines, naturalistic photography for landscapes. Keep structures scientifically and physically plausible. Do not invent parts, incorrect anatomy, impossible geometry, or misleading detail.
 Make the primary subject immediately recognizable and dominant. Cinematic camera, realistic perspective, clean frame, sharp subject detail, natural depth of field.
-Generate only the requested scene. Do not add captions, labels, UI, watermarks, logos, or decorative typography.`;
+Frame every picture as a wide 16:9 shot. Fill the frame edge to edge. Do not leave empty borders or a square picture inside a wider frame.
+Add the short part labels named in the prompt. Place each label beside that part with a thin line. Use only those words. No captions, logos, watermarks, or extra text.`;
 
 const STUDIO_VIDEO_STYLE =
-  "Photorealistic cinematic video, like a premium documentary frame or high-end visual-effects render. Believable materials, real texture, physically plausible light, soft shadows, and natural color. Not a cartoon, diagram, or flat graphic. No captions, labels, logos, or watermark. One slow obvious motion. No dialogue, no narration, no voiceover.";
+  "Photorealistic cinematic picture in a full 16:9 frame. Fill the frame edge to edge, with no black bars and no square image. Same subject, same place, same light as the still. One slow physical motion. No speaking, no narrator, no voice, no lyrics, no on-screen text, no labels, no watermark.";
 
 function cleanId(value, fallback) {
   const id = String(value || "")
@@ -58,13 +60,9 @@ export function normalizeStudioPlan(parsed, prompt) {
     const images = IMAGE_KINDS.map((kind, k) => {
       const item = imagesIn[k] || {};
       const fallback =
-        kind === "angle"
-          ? `${title}, the same subject from another real camera angle`
-          : kind === "part"
-            ? `${title}, one important part of the same subject`
-            : kind === "detail"
-              ? `${title}, a closer view of the same subject`
-              : `${title}, one clear view of the whole subject`;
+        kind === "detail"
+          ? `${title}, a closer view of the same subject in the same place`
+          : `${title}, one clear view of the whole subject`;
       return {
         id: cleanId(item.id, kind),
         kind,
@@ -77,11 +75,7 @@ export function normalizeStudioPlan(parsed, prompt) {
     const labelsIn = Array.isArray(src.labels) ? src.labels : [];
     let labels = labelsIn
       .slice(0, 3)
-      .map((label, n) => ({
-        id: cleanId(label.id || label.text, `part_${n + 1}`),
-        text: String(label.text || label.name || "").slice(0, 40),
-        blurb: String(label.blurb || label.reason || "").slice(0, 240),
-      }))
+      .map((label, n) => normalizeLabel(label, n, title))
       .filter((label) => label.text);
     if (labels.length < 2) {
       labels = [
@@ -113,7 +107,54 @@ export function normalizeStudioPlan(parsed, prompt) {
   }
   return {
     topic: String(parsed?.topic || prompt).slice(0, 120),
+    subject: String(parsed?.subject || parsed?.topic || prompt).slice(0, 240),
     moments,
+  };
+}
+
+function shortLine(value, max) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function normalizeLabel(label, index, title) {
+  const text = shortLine(label?.text || label?.name, 40);
+  const highlights = (Array.isArray(label?.highlights) ? label.highlights : [])
+    .map((item) => shortLine(typeof item === "string" ? item : item?.text, 120))
+    .filter(Boolean)
+    .slice(0, 4);
+  const facts = (Array.isArray(label?.facts) ? label.facts : [])
+    .map((item) => {
+      if (Array.isArray(item)) return [shortLine(item[0], 32), shortLine(item[1], 40)];
+      return [shortLine(item?.name || item?.label, 32), shortLine(item?.value, 40)];
+    })
+    .filter(([name, value]) => name && value)
+    .slice(0, 4);
+  const steps = (value) =>
+    (Array.isArray(value) ? value : [])
+      .map((item) => ({
+        title: shortLine(item?.title || item?.name, 48),
+        text: shortLine(item?.text || item?.detail, 180),
+      }))
+      .filter((item) => item.title && item.text)
+      .slice(0, 5);
+  const structure = (Array.isArray(label?.structure) ? label.structure : [])
+    .map((item) => ({
+      name: shortLine(item?.name || item?.title, 40),
+      detail: shortLine(item?.detail || item?.text, 160),
+    }))
+    .filter((item) => item.name && item.detail)
+    .slice(0, 4);
+  return {
+    id: cleanId(label?.id || text, `part_${index + 1}`),
+    text,
+    blurb: shortLine(label?.blurb || label?.reason, 240) || `This is one important part of ${title}.`,
+    highlights,
+    facts,
+    panels: {
+      function: steps(label?.function || label?.panels?.function),
+      structure,
+      related: steps(label?.related || label?.panels?.related),
+    },
   };
 }
 
@@ -121,25 +162,26 @@ function planPrompt(prompt) {
   return `You plan a short classroom lesson from one teacher prompt.
 Prompt: "${String(prompt).replace(/"/g, "'")}"
 
-Return JSON only. Exactly 5 moments, in order: introduction, what it is made of, how it works, what changes, why it matters.
-Each moment has exactly 4 short image prompts: wide view, another angle, one part, a closer view. Photorealistic, not a diagram or cartoon.
-Each moment has 2 or 3 part labels.
-Each moment has exactly 3 short summary points. One sentence each.
-Captions are 8 words or fewer. Each video prompt is one slow action and no dialogue.
+Return JSON only. One continuous story in exactly 2 moments.
+Write a subject sentence that names the exact thing and the place. Both moments must use that same subject and place.
+Moment 1 opens the scene. Moment 2 continues that same action a few seconds later. Do not start a new topic.
+Each moment has exactly 2 image prompts: a wide 16:9 view, then a closer 16:9 view of the same subject. Photorealistic, not a diagram. Never a square frame.
+Each moment has 2 or 3 part labels. Every label needs a one-sentence blurb, 3 short overview lines, 3 quick facts, 3 function steps, 3 structure rows, and 2 related parts. Facts must be true for a classroom, not invented numbers. Exactly 3 short summary points.
+Captions are 8 words or fewer.
+Each video prompt is silent motion in a full 16:9 frame, with the subject filling the picture and no empty borders. Do not write a sentence for someone to read aloud. The second video prompt must continue the first, not repeat it.
 
 {
   "topic": "short topic",
+  "subject": "the exact subject and place, used in both moments",
   "moments": [
     {
       "id": "moment_1",
       "title": "short title",
       "caption": "eight words max",
-      "videoPrompt": "one slow action",
+      "videoPrompt": "the opening motion, with no words to speak",
       "images": [
-        { "id": "wide", "prompt": "one clear view of the whole subject" },
-        { "id": "angle", "prompt": "the same subject from another angle" },
-        { "id": "part", "prompt": "one important part" },
-        { "id": "detail", "prompt": "a closer view of the same subject" }
+        { "id": "wide", "prompt": "wide view of the subject in that place" },
+        { "id": "detail", "prompt": "closer view of the same subject in that place" }
       ],
       "points": [
         "One short fact about this moment.",
@@ -147,7 +189,27 @@ Captions are 8 words or fewer. Each video prompt is one slow action and no dialo
         "Why that matters."
       ],
       "labels": [
-        { "id": "part_a", "text": "Part name", "blurb": "one sentence a student can understand" }
+        {
+          "id": "part_a",
+          "text": "Part name",
+          "blurb": "one sentence a student can understand",
+          "highlights": ["One thing to notice.", "What it does here.", "Why it matters."],
+          "facts": [["Name", "short value"], ["Name", "short value"], ["Name", "short value"]],
+          "function": [
+            { "title": "First action", "text": "What this part does first." },
+            { "title": "Next action", "text": "What happens after that." },
+            { "title": "Result", "text": "What the student should remember." }
+          ],
+          "structure": [
+            { "name": "Piece", "detail": "What this piece is." },
+            { "name": "Piece", "detail": "How it fits with the others." },
+            { "name": "Piece", "detail": "Where it sits in the subject." }
+          ],
+          "related": [
+            { "title": "Other part", "text": "How it connects to this one." },
+            { "title": "Other part", "text": "What the student can look at next." }
+          ]
+        }
       ]
     }
   ]
@@ -264,6 +326,53 @@ async function normalizeClip(input, output) {
   }
 }
 
+async function mergeTwoClips(firstPath, secondPath, destPath) {
+  const offset = (CLIP_SECONDS - JOIN_FADE_SECONDS).toFixed(2);
+  const dir = path.dirname(destPath);
+  const normalized = [0, 1].map((index) => path.join(dir, `.studio-join-${index}.${process.pid}.mp4`));
+  const tmpPath = path.join(dir, `.studio-lesson.${process.pid}.${Date.now()}.tmp.mp4`);
+  try {
+    await normalizeClip(firstPath, normalized[0]);
+    await normalizeClip(secondPath, normalized[1]);
+    await runFfmpeg([
+      "-y",
+      "-i",
+      normalized[0],
+      "-i",
+      normalized[1],
+      "-filter_complex",
+      `[0:v][1:v]xfade=transition=fade:duration=${JOIN_FADE_SECONDS}:offset=${offset}[v];[0:a][1:a]acrossfade=d=${JOIN_FADE_SECONDS}[a]`,
+      "-map",
+      "[v]",
+      "-map",
+      "[a]",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-profile:v",
+      "main",
+      "-preset",
+      "fast",
+      "-crf",
+      "20",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      tmpPath,
+    ]);
+    await fs.rename(tmpPath, destPath);
+  } catch (err) {
+    await fs.unlink(tmpPath).catch(() => {});
+    throw err;
+  } finally {
+    await Promise.all(normalized.map((file) => fs.unlink(file).catch(() => {})));
+  }
+}
+
 async function concatClips(inputPaths, destPath) {
   const dir = path.dirname(destPath);
   await fs.mkdir(dir, { recursive: true });
@@ -290,12 +399,13 @@ async function concatClips(inputPaths, destPath) {
 }
 
 function stillPrompt(image) {
-  return `${image.prompt}. Same subject as the rest of this lesson.`;
+  return `${image.prompt}. Wide 16:9 frame, edge to edge. Same subject as the rest of this lesson.`;
 }
 
 async function writeStill(dir, sessionId, momentIndex, image) {
   const dataUrl = await generateDiagram(stillPrompt(image), {
     instruction: STUDIO_STILL_INSTRUCTION,
+    aspectRatio: "16:9",
   });
   const { mimeType, base64 } = parseDataUrl(dataUrl);
   const ext = mimeType.includes("jpeg") || mimeType.includes("jpg") ? "jpg" : "png";
@@ -333,68 +443,47 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     errors: [],
   };
 
-  const emit = async (notice) => {
-    if (onProgress) await onProgress({ notice, session: publicStudioSession(session) });
+  const emit = async (notice, progress) => {
+    if (onProgress) await onProgress({ notice, progress, session: publicStudioSession(session) });
   };
 
-  await emit("Planning five moments…");
+  await emit("Planning two connected moments…", 4);
   const raw = await geminiGenerate(planPrompt(text), { json: true, maxOutputTokens: 8192, temperature: 0.4 });
   const plan = normalizeStudioPlan(parseJson(raw), text);
   session.topic = plan.topic;
   session.moments = plan.moments.map((moment) => ({
     ...moment,
-    images: moment.images.map((image) => ({ ...image })),
+    images: moment.images.map((image) => {
+      const names = moment.labels.map((label) => label.text).filter(Boolean).join(", ");
+      return {
+        ...image,
+        prompt: `${plan.subject}. ${image.prompt}. Add short labels with thin lines for: ${names}.`.slice(0, 700),
+      };
+    }),
     labels: moment.labels.map((label) => ({ ...label })),
   }));
-  await emit("Plan ready. Creating stills…");
+  await emit("Plan ready. Creating stills…", 8);
 
   for (let i = 0; i < session.moments.length; i += 1) {
     const moment = session.moments[i];
     for (let k = 0; k < moment.images.length; k += 1) {
       const image = moment.images[k];
       const n = i * STUDIO_IMAGES + k + 1;
-      await emit(`Creating still ${n} of ${STUDIO_MOMENTS * STUDIO_IMAGES}…`);
+      const stillStart = 8 + ((n - 1) / (STUDIO_MOMENTS * STUDIO_IMAGES)) * 36;
+      const stillDone = 8 + (n / (STUDIO_MOMENTS * STUDIO_IMAGES)) * 36;
+      await emit(`Creating still ${n} of ${STUDIO_MOMENTS * STUDIO_IMAGES}…`, Math.round(stillStart));
       try {
         const saved = await writeStill(sessionDir, sessionId, i, image);
         image.url = saved.url;
         image.filePath = saved.filePath;
         image.mimeType = saved.mimeType;
         image.base64 = saved.base64;
-        await emit(`Still ready: ${moment.title}`);
+        await emit(`Still ready: ${moment.title}`, Math.round(stillDone));
       } catch (err) {
         image.error = err.message;
         session.errors.push(`${moment.title}: ${err.message}`);
-        await emit(`Still failed: ${moment.title}`);
+        await emit(`Still failed: ${moment.title}`, Math.round(stillDone));
       }
-    }
-
-    const lead = moment.images[0]?.prompt || moment.title;
-    await emit(`Exploded view: ${moment.title}`);
-    try {
-      const saved = await writeStill(sessionDir, sessionId, i, {
-        kind: "exploded",
-        prompt: `${lead}. Exploded view of this one subject: its main parts separated in space, each part still recognizable, same materials and lighting.`,
-      });
-      moment.exploded = { url: saved.url, error: null };
-      await emit(`Exploded view ready: ${moment.title}`);
-    } catch (err) {
-      moment.exploded = { url: null, error: err.message };
-      session.errors.push(`${moment.title} exploded: ${err.message}`);
-      await emit(`Exploded view failed: ${moment.title}`);
-    }
-
-    await emit(`Inside view: ${moment.title}`);
-    try {
-      const saved = await writeStill(sessionDir, sessionId, i, {
-        kind: "inside",
-        prompt: `${lead}. Inside view of this same subject: a clean cutaway that shows the interior, same materials and lighting.`,
-      });
-      moment.inside = { url: saved.url, error: null };
-      await emit(`Inside view ready: ${moment.title}`);
-    } catch (err) {
-      moment.inside = { url: null, error: err.message };
-      session.errors.push(`${moment.title} inside: ${err.message}`);
-      await emit(`Inside view failed: ${moment.title}`);
     }
   }
 
@@ -406,26 +495,32 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     if (!still) {
       moment.clipError = "No still was available for this moment";
       session.errors.push(`${moment.title}: video clip skipped`);
-      await emit(moment.clipError);
+      await emit(moment.clipError, 44 + i * 26);
       continue;
     }
-    await emit(`Generating video ${clipPaths.length + 1} of ${STUDIO_MOMENTS}: ${moment.title}…`);
+    await emit(`Generating video ${clipPaths.length + 1} of ${STUDIO_MOMENTS}: ${moment.title}…`, 46 + i * 24);
     const destPath = path.join(videoDir, `clip-${i + 1}.mp4`);
     try {
+      const motion = i === 0
+        ? `Opening of one continuous scene. ${moment.videoPrompt}`
+        : `A few seconds later in that same scene. Continue the motion. Do not start over and do not repeat the opening. ${moment.videoPrompt}`;
       await generateVeoClipFromImage({
-        prompt: `${moment.videoPrompt} ${STUDIO_VIDEO_STYLE}`,
+        prompt: `${plan.subject}. ${motion} ${STUDIO_VIDEO_STYLE}`,
         imageBase64: still.base64,
         mimeType: still.mimeType,
         destPath,
         durationSeconds: CLIP_SECONDS,
+        generateAudio: false,
+        aspectRatio: "16:9",
+        resolution: "720p",
       });
       clipPaths.push(destPath);
       clipMoments.push(moment);
-      await emit(`Video clip ready: ${moment.title}`);
+      await emit(`Video clip ready: ${moment.title}`, 68 + i * 24);
     } catch (err) {
       moment.clipError = err.message;
       session.errors.push(`${moment.title}: ${err.message}`);
-      await emit(`Video clip failed: ${moment.title}`);
+      await emit(`Video clip failed: ${moment.title}`, 68 + i * 24);
     }
   }
 
@@ -434,13 +529,15 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     const posterName = `lesson-${sessionId}-poster.jpg`;
     const destPath = path.join(videoDir, lessonName);
     const posterPath = path.join(videoDir, posterName);
-    await emit("Joining the moments into one video…");
+    await emit("Joining the moments into one video…", 96);
     try {
       if (clipPaths.length === 1) await fs.copyFile(clipPaths[0], destPath);
+      else if (clipPaths.length === 2) await mergeTwoClips(clipPaths[0], clipPaths[1], destPath);
       else await concatClips(clipPaths, destPath);
       await writeMergedPoster(destPath, posterPath).catch(() => {});
+      const joined = clipPaths.length === 2;
       clipMoments.forEach((moment, index) => {
-        moment.seekSec = index * CLIP_SECONDS;
+        moment.seekSec = joined ? index * (CLIP_SECONDS - JOIN_FADE_SECONDS) : index * CLIP_SECONDS;
       });
       const stamp = Date.now();
       session.video = {
@@ -449,13 +546,15 @@ export async function generateStudioLesson({ prompt, onProgress }) {
         title: session.topic,
         url: `/generated/studio/${sessionId}/video/${lessonName}?t=${stamp}`,
         posterUrl: `/generated/studio/${sessionId}/video/${posterName}?t=${stamp}`,
-        durationSeconds: clipPaths.length * CLIP_SECONDS,
+        durationSeconds: clipPaths.length === 2
+          ? CLIP_SECONDS * 2 - JOIN_FADE_SECONDS
+          : clipPaths.length * CLIP_SECONDS,
         captions: clipMoments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
       };
-      await emit("Lesson video ready");
+      await emit("Lesson video ready", 100);
     } catch (err) {
       session.errors.push(err.message);
-      await emit(`Could not join the video: ${err.message}`);
+      await emit(`Could not join the video: ${err.message}`, 96);
     }
   }
 

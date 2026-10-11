@@ -72,6 +72,8 @@ export function LessonClipPlayer({
   playbackRef,
   preload = "metadata",
   deferSrc = false,
+  hug = false,
+  wide = false,
 }) {
   const videoRef = useRef(null);
   const speakingRef = useRef(false);
@@ -214,8 +216,8 @@ export function LessonClipPlayer({
   return (
     <figure className="m-0 font-[Nunito,sans-serif]">
       <div
-        className={`relative overflow-hidden rounded-xl border border-[#F0EAE0] bg-black ${
-          compact ? "min-h-[320px] flex-1" : "min-h-[260px]"
+        className={`relative overflow-hidden rounded-xl ${
+          wide ? "aspect-video bg-transparent" : `bg-black ${hug ? "" : `border border-[#F0EAE0] ${compact ? "min-h-[320px] flex-1" : "min-h-[260px]"}`}`
         }`}
       >
         <video
@@ -227,7 +229,11 @@ export function LessonClipPlayer({
           playsInline
           muted={Boolean(captions && cues.length)}
           preload={preload}
-          className={`block h-auto w-full bg-black ${compact ? "min-h-[320px] object-contain" : "aspect-video max-h-[420px] object-contain"}`}
+          className={`bg-black ${
+            wide
+              ? "absolute inset-0 h-full w-full bg-transparent object-contain"
+              : `block h-auto w-full ${hug ? "" : compact ? "min-h-[320px] object-contain" : "aspect-video max-h-[420px] object-contain"}`
+          }`}
           onError={() => setVideoError("The browser could not play this video file.")}
           onLoadedData={() => setVideoError("")}
           onPlay={(e) => {
@@ -305,7 +311,7 @@ export function LessonClipPlayer({
           </p>
         )}
       </div>
-      {!compact && (
+      {!compact && !hug && !wide && (
         <figcaption className="mt-1.5 text-[0.8rem] text-[#6B7280]">
           {clip.title} ({clip.durationSeconds}s) ·{" "}
           <a href={src} target="_blank" rel="noreferrer" className="font-extrabold text-[#7C3AED] hover:underline">
