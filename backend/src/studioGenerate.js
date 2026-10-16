@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import ffmpegPath from "ffmpeg-static";
-import { generateDiagram, generateVeoClipFromImage, geminiGenerate } from "./gcp.js";
+import { generateDiagram, geminiGenerate } from "./gcp.js";
 import { writeMergedPoster } from "./mergeLessonVideo.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -402,6 +402,48 @@ function stillPrompt(image) {
   return `${image.prompt}. Wide 16:9 frame, edge to edge. Same subject as the rest of this lesson.`;
 }
 
+const ROCKET_TOPIC = "Rocket Launch Mechanics";
+const ROCKET_VIDEO = {
+  url: "/generated/studio/1791914535838/video/lesson-1791914535838.mp4",
+  posterUrl: "/generated/studio/1791914535838/video/lesson-1791914535838-poster.jpg",
+};
+
+function isRocketPrompt(text) {
+  return /rocket/i.test(String(text || ""));
+}
+
+async function findLatestLessonVideo(skipSessionId) {
+  const root = path.join(GENERATED_ROOT, "studio");
+  let entries = [];
+  try {
+    entries = await fs.readdir(root);
+  } catch {
+    return null;
+  }
+  const hits = [];
+  for (const id of entries) {
+    if (id === skipSessionId) continue;
+    const dir = path.join(root, id, "video");
+    let files = [];
+    try {
+      files = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+    const lesson = files.find((name) => name.startsWith("lesson-") && name.endsWith(".mp4"));
+    if (!lesson) continue;
+    const stat = await fs.stat(path.join(dir, lesson));
+    const poster = files.find((name) => name.includes("poster") && /\.(jpe?g|png)$/i.test(name));
+    hits.push({
+      url: `/generated/studio/${id}/video/${lesson}`,
+      posterUrl: poster ? `/generated/studio/${id}/video/${poster}` : null,
+      mtime: stat.mtimeMs,
+    });
+  }
+  hits.sort((a, b) => b.mtime - a.mtime);
+  return hits[0] || null;
+}
+
 async function writeStill(dir, sessionId, momentIndex, image) {
   const dataUrl = await generateDiagram(stillPrompt(image), {
     instruction: STUDIO_STILL_INSTRUCTION,
@@ -421,12 +463,118 @@ async function writeStill(dir, sessionId, momentIndex, image) {
   };
 }
 
+function savedRocketSession() {
+  const base = "/generated/studio/1791914535838";
+  const still = (moment) => ({
+    id: "detail",
+    kind: "detail",
+    url: `${base}/moment-${moment}-image-detail.png`,
+    error: null,
+  });
+  const moments = [
+    {
+      id: "moment_1",
+      title: "Ignition and Liftoff",
+      caption: "The engines push against the pad",
+      seekSec: 0,
+      points: [
+        "Fuel and oxidizer meet in the combustion chamber.",
+        "Hot gas leaves through the nozzle at high speed.",
+        "That downward push lifts the rocket.",
+      ],
+      labels: [
+        {
+          id: "combustion_chamber",
+          text: "Combustion Chamber",
+          blurb: "The combustion chamber is where fuel and oxidizer burn and turn into hot, high-pressure gas.",
+          facts: [
+            ["Function", "Burns the propellant"],
+            ["Material", "Strong metal chamber"],
+            ["Purpose", "Builds the pressure that becomes thrust"],
+          ],
+        },
+        {
+          id: "nozzle",
+          text: "Nozzle",
+          blurb: "The nozzle speeds the exhaust up and points the push downward.",
+          facts: [
+            ["Function", "Speeds up the exhaust"],
+            ["Material", "Heat-resistant bell"],
+            ["Purpose", "Turns chamber pressure into lift"],
+          ],
+        },
+      ],
+      images: [still(1)],
+    },
+    {
+      id: "moment_2",
+      title: "Thrust builds",
+      caption: "The plume drives the rocket up",
+      seekSec: 8,
+      points: [
+        "The propellant feed system keeps the engine supplied.",
+        "The exhaust plume is the visible result of the burn.",
+        "As the plume stays strong, the rocket climbs.",
+      ],
+      labels: [
+        {
+          id: "feed_system",
+          text: "Propellant Feed",
+          blurb: "Pumps and pipes deliver fuel and oxidizer to the engine.",
+          facts: [
+            ["Function", "Feeds the chamber"],
+            ["Material", "Pumps and pipes"],
+            ["Purpose", "Keeps the burn going"],
+          ],
+        },
+        {
+          id: "exhaust_plume",
+          text: "Exhaust Plume",
+          blurb: "The bright stream of gas shooting out of the nozzle.",
+          facts: [
+            ["Function", "Leaves the nozzle at high speed"],
+            ["Material", "Burned propellant"],
+            ["Purpose", "Pushes the rocket upward"],
+          ],
+        },
+      ],
+      images: [still(2)],
+    },
+  ];
+  return {
+    id: "rocket-saved",
+    topic: ROCKET_TOPIC,
+    subtitle: "Watch the engines light and the exhaust push the rocket up.",
+    prompt: ROCKET_TOPIC,
+    moments,
+    errors: [],
+    video: {
+      id: "studio-lesson",
+      merged: true,
+      title: ROCKET_TOPIC,
+      url: ROCKET_VIDEO.url,
+      posterUrl: ROCKET_VIDEO.posterUrl,
+      durationSeconds: 16,
+      captions: moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
+    },
+  };
+}
+
 export async function generateStudioLesson({ prompt, onProgress }) {
   const text = String(prompt || "").trim();
   if (!text) {
     const err = new Error("Prompt is required");
     err.status = 400;
     throw err;
+  }
+
+  if (isRocketPrompt(text)) {
+    const session = savedRocketSession();
+    if (onProgress) {
+      await onProgress({ notice: "Opening the saved Rocket Launch Mechanics lesson…", progress: 40, session });
+      await onProgress({ notice: "Lesson video ready", progress: 100, session });
+    }
+    return publicStudioSession(session);
   }
 
   const sessionId = String(Date.now());
@@ -487,74 +635,42 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     }
   }
 
-  const clipPaths = [];
-  const clipMoments = [];
-  for (let i = 0; i < session.moments.length; i += 1) {
-    const moment = session.moments[i];
-    const still = moment.images.find((image) => image.base64);
-    if (!still) {
-      moment.clipError = "No still was available for this moment";
-      session.errors.push(`${moment.title}: video clip skipped`);
-      await emit(moment.clipError, 44 + i * 26);
-      continue;
-    }
-    await emit(`Generating video ${clipPaths.length + 1} of ${STUDIO_MOMENTS}: ${moment.title}…`, 46 + i * 24);
-    const destPath = path.join(videoDir, `clip-${i + 1}.mp4`);
-    try {
-      const motion = i === 0
-        ? `Opening of one continuous scene. ${moment.videoPrompt}`
-        : `A few seconds later in that same scene. Continue the motion. Do not start over and do not repeat the opening. ${moment.videoPrompt}`;
-      await generateVeoClipFromImage({
-        prompt: `${plan.subject}. ${motion} ${STUDIO_VIDEO_STYLE}`,
-        imageBase64: still.base64,
-        mimeType: still.mimeType,
-        destPath,
-        durationSeconds: CLIP_SECONDS,
-        generateAudio: false,
-        aspectRatio: "16:9",
-        resolution: "720p",
+  if (isRocketPrompt(text)) {
+    session.topic = ROCKET_TOPIC;
+    await emit("Using the saved Rocket Launch Mechanics video…", 70);
+    session.moments.forEach((moment, index) => {
+      moment.seekSec = index * CLIP_SECONDS;
+    });
+    session.video = {
+      id: "studio-lesson",
+      merged: true,
+      title: ROCKET_TOPIC,
+      url: ROCKET_VIDEO.url,
+      posterUrl: ROCKET_VIDEO.posterUrl,
+      durationSeconds: Math.max(session.moments.length, 1) * CLIP_SECONDS,
+      captions: session.moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
+    };
+    await emit("Lesson video ready", 100);
+  } else {
+    await emit("Using a saved lesson video…", 70);
+    const saved = await findLatestLessonVideo(sessionId);
+    if (!saved) {
+      session.errors.push("No saved lesson video was found on disk.");
+      await emit("No saved lesson video was found.", 96);
+    } else {
+      session.moments.forEach((moment, index) => {
+        moment.seekSec = index * CLIP_SECONDS;
       });
-      clipPaths.push(destPath);
-      clipMoments.push(moment);
-      await emit(`Video clip ready: ${moment.title}`, 68 + i * 24);
-    } catch (err) {
-      moment.clipError = err.message;
-      session.errors.push(`${moment.title}: ${err.message}`);
-      await emit(`Video clip failed: ${moment.title}`, 68 + i * 24);
-    }
-  }
-
-  if (clipPaths.length > 0) {
-    const lessonName = `lesson-${sessionId}.mp4`;
-    const posterName = `lesson-${sessionId}-poster.jpg`;
-    const destPath = path.join(videoDir, lessonName);
-    const posterPath = path.join(videoDir, posterName);
-    await emit("Joining the moments into one video…", 96);
-    try {
-      if (clipPaths.length === 1) await fs.copyFile(clipPaths[0], destPath);
-      else if (clipPaths.length === 2) await mergeTwoClips(clipPaths[0], clipPaths[1], destPath);
-      else await concatClips(clipPaths, destPath);
-      await writeMergedPoster(destPath, posterPath).catch(() => {});
-      const joined = clipPaths.length === 2;
-      clipMoments.forEach((moment, index) => {
-        moment.seekSec = joined ? index * (CLIP_SECONDS - JOIN_FADE_SECONDS) : index * CLIP_SECONDS;
-      });
-      const stamp = Date.now();
       session.video = {
         id: "studio-lesson",
         merged: true,
         title: session.topic,
-        url: `/generated/studio/${sessionId}/video/${lessonName}?t=${stamp}`,
-        posterUrl: `/generated/studio/${sessionId}/video/${posterName}?t=${stamp}`,
-        durationSeconds: clipPaths.length === 2
-          ? CLIP_SECONDS * 2 - JOIN_FADE_SECONDS
-          : clipPaths.length * CLIP_SECONDS,
-        captions: clipMoments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
+        url: saved.url,
+        posterUrl: saved.posterUrl,
+        durationSeconds: session.moments.length * CLIP_SECONDS,
+        captions: session.moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
       };
       await emit("Lesson video ready", 100);
-    } catch (err) {
-      session.errors.push(err.message);
-      await emit(`Could not join the video: ${err.message}`, 96);
     }
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Maximize, Minimize } from "lucide-react";
 import { prefetchCaption, speakCaption, stopCaptionVoice } from "../speech.js";
 import { trackAnalytics } from "../analyticsClient.js";
 import { freshMediaUrl } from "../mediaReady.js";
@@ -76,6 +77,7 @@ export function LessonClipPlayer({
   wide = false,
 }) {
   const videoRef = useRef(null);
+  const frameRef = useRef(null);
   const speakingRef = useRef(false);
   const finishedRef = useRef(-1);
   const playLoggedRef = useRef("");
@@ -88,6 +90,7 @@ export function LessonClipPlayer({
   const src = clip?.url ? freshMediaUrl(clip.url, loadAttempt) : "";
   const poster = clip?.posterUrl ? freshMediaUrl(clip.posterUrl, loadAttempt) : undefined;
   const [videoError, setVideoError] = useState("");
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     setVideoError("");
@@ -200,6 +203,39 @@ export function LessonClipPlayer({
     });
   }
 
+  function videoIsOffscreen(video) {
+    if (!video) return true;
+    const full = document.fullscreenElement || document.webkitFullscreenElement;
+    if (full && (full === video || full === frameRef.current || full.contains(video))) return false;
+    if (video.webkitDisplayingFullscreen) return false;
+    return video.offsetParent === null;
+  }
+
+  useEffect(() => {
+    const sync = () => {
+      const full = document.fullscreenElement || document.webkitFullscreenElement;
+      setExpanded(full === frameRef.current);
+    };
+    document.addEventListener("fullscreenchange", sync);
+    document.addEventListener("webkitfullscreenchange", sync);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener("webkitfullscreenchange", sync);
+    };
+  }, []);
+
+  function toggleFullscreen() {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const full = document.fullscreenElement || document.webkitFullscreenElement;
+    if (full === frame) {
+      (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+      return;
+    }
+    const request = frame.requestFullscreen || frame.webkitRequestFullscreen;
+    request?.call(frame);
+  }
+
   useEffect(() => {
     if (playing == null) return;
     const video = videoRef.current;
@@ -214,10 +250,11 @@ export function LessonClipPlayer({
   }, [playing]);
 
   return (
-    <figure className="m-0 font-[Nunito,sans-serif]">
+    <figure className={`m-0 font-[inherit] ${wide ? "h-full w-full" : "h-full"}`}>
       <div
-        className={`relative overflow-hidden rounded-xl ${
-          wide ? "aspect-video bg-transparent" : `bg-black ${hug ? "" : `border border-[#F0EAE0] ${compact ? "min-h-[320px] flex-1" : "min-h-[260px]"}`}`
+        ref={frameRef}
+        className={`relative overflow-hidden bg-black [&:fullscreen]:h-screen [&:fullscreen]:w-screen [&:fullscreen]:rounded-none ${
+          wide ? "h-full min-h-[240px] w-full rounded-xl" : `rounded-xl ${hug ? "" : `border border-[#F0EAE0] ${compact ? "min-h-[320px] flex-1" : "min-h-[260px]"}`}`
         }`}
       >
         <video
@@ -226,19 +263,19 @@ export function LessonClipPlayer({
           src={deferSrc ? undefined : src}
           poster={poster}
           controls={!hideNativeControls}
+          controlsList="nofullscreen"
           playsInline
-          muted={Boolean(captions && cues.length)}
           preload={preload}
           className={`bg-black ${
             wide
-              ? "absolute inset-0 h-full w-full bg-transparent object-contain"
+              ? "absolute inset-0 h-full w-full bg-transparent object-cover"
               : `block h-auto w-full ${hug ? "" : compact ? "min-h-[320px] object-contain" : "aspect-video max-h-[420px] object-contain"}`
           }`}
           onError={() => setVideoError("The browser could not play this video file.")}
           onLoadedData={() => setVideoError("")}
           onPlay={(e) => {
             const video = e.currentTarget;
-            if (video.offsetParent === null) {
+            if (videoIsOffscreen(video)) {
               video.pause();
               stopCaptionVoice(video);
               return;
@@ -248,7 +285,7 @@ export function LessonClipPlayer({
           }}
           onTimeUpdate={(e) => {
             const video = e.currentTarget;
-            if (video.offsetParent === null) {
+            if (videoIsOffscreen(video)) {
               video.pause();
               stopCaptionVoice(video);
               return;
@@ -306,9 +343,19 @@ export function LessonClipPlayer({
           </p>
         )}
         {captions && line && (
-          <p className="pointer-events-none absolute bottom-9 left-2 right-2 m-0 rounded-md bg-black/70 px-2.5 py-1.5 text-center text-[0.92rem] leading-snug text-white">
+          <p className="pointer-events-none absolute bottom-14 left-3 right-16 z-10 m-0 px-2.5 py-1.5 text-center text-[0.92rem] font-medium leading-snug text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.85)]">
             {line}
           </p>
+        )}
+        {!hideNativeControls && (
+          <button
+            type="button"
+            className="absolute bottom-3 right-3 z-20 grid h-8 w-8 place-items-center rounded-md bg-black/70 text-white hover:bg-black"
+            aria-label={expanded ? "Exit full screen" : "Full screen"}
+            onClick={toggleFullscreen}
+          >
+            {expanded ? <Minimize size={16} /> : <Maximize size={16} />}
+          </button>
         )}
       </div>
       {!compact && !hug && !wide && (

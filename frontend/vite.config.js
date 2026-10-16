@@ -26,12 +26,6 @@ export default defineConfig({
         timeout: 0,
         proxyTimeout: 0,
       },
-      // Newly written prepare assets (Gemini stills, GLBs, video) live under
-      // public/generated. Vite's watch ignore prevents HMR thrash, but it also
-      // means new files aren't served — proxy to Express which reads disk live.
-      "/generated": {
-        target: "http://localhost:8080",
-      },
     },
   },
   build: {
