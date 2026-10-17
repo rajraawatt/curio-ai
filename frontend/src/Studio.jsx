@@ -493,7 +493,16 @@ export function Studio({ mockId = "" }) {
           if (data.progress != null) setProgress(Math.max(0, Math.min(100, Math.round(data.progress))));
         }
         if ((eventName === "session" || eventName === "done") && data.session) {
-          setSession(data.session);
+          const nextSession = data.session;
+          setSession(nextSession);
+          const firstReadyChapter = nextSession.moments?.findIndex((item) => item.videoUrl) ?? -1;
+          if (firstReadyChapter >= 0 && !partialLessonStartedRef.current) {
+            partialLessonStartedRef.current = true;
+            setMomentIndex(firstReadyChapter);
+            setImageIndex(0);
+            setFocus(nextSession.moments[firstReadyChapter]?.labels?.[0] || null);
+            setPlaying(true);
+          }
         }
         if (eventName === "error") setError(data.error || "Studio failed");
       });
@@ -602,18 +611,30 @@ export function Studio({ mockId = "" }) {
 
   const showWorkspace = Boolean(session) || busy || watchMode;
   const chapterClip = session?.video?.chapterMode ? moment : null;
-  const clip = session?.video?.url
+  const clip = session?.video?.chapterMode && chapterClip?.videoUrl
     ? {
-        id: chapterClip?.id || "studio-lesson",
-        merged: !session.video.chapterMode,
-        title: chapterClip?.title || session.topic,
-        url: chapterClip?.videoUrl || session.video.url,
-        posterUrl: chapterClip?.posterUrl || session.video.posterUrl,
-        durationSeconds: chapterClip?.durationSeconds || session.video.durationSeconds,
-        captions: session.video.captions,
+        id: chapterClip.id,
+        merged: false,
+        title: chapterClip.title || session.topic,
+        url: chapterClip.videoUrl,
+        posterUrl: chapterClip.posterUrl,
+        durationSeconds: chapterClip.durationSeconds,
+        narration: chapterClip.narration,
+        captions: [{ atSec: 0, text: chapterClip.narration || chapterClip.caption || chapterClip.title }],
         packId: "studio",
       }
-    : null;
+    : session?.video?.url
+      ? {
+          id: "studio-lesson",
+          merged: true,
+          title: session.topic,
+          url: session.video.url,
+          posterUrl: session.video.posterUrl,
+          durationSeconds: session.video.durationSeconds,
+          captions: session.video.captions,
+          packId: "studio",
+        }
+      : null;
   return (
     <main className="relative flex h-screen overflow-hidden bg-black font-[Inter,sans-serif] text-[#e8eaed]">
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
