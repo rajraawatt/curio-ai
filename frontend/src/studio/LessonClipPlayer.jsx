@@ -501,6 +501,16 @@ export function LessonClipPlayer({
           </div>
         )}
         </div>
+        {wide && zoomed && onZoom && (
+          <button
+            type="button"
+            className="absolute left-3 top-3 z-40 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black"
+            aria-label="Exit full video"
+            onClick={onZoom}
+          >
+            <Minimize size={14} /> Exit
+          </button>
+        )}
         {wide && (
           <div className="pointer-events-none absolute right-3 top-3 z-10 opacity-70">
             <span className="text-sm font-semibold tracking-wide text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">Curio</span>

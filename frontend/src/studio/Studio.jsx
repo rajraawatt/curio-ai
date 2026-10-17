@@ -292,6 +292,15 @@ export function Studio({ mockId = "" }) {
   }, [momentIndex]);
 
   useEffect(() => {
+    if (!videoFull) return undefined;
+    const onKey = (event) => {
+      if (event.key === "Escape") setVideoFull(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [videoFull]);
+
+  useEffect(() => {
     if (!playToken) return undefined;
     const timer = window.setTimeout(() => playbackRef.current?.play(), 80);
     return () => window.clearTimeout(timer);
