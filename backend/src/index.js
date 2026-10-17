@@ -5,11 +5,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { healthInfo, synthesizeSpeech } from "./gcp.js";
 import { askModelTutor } from "./modelTutor.js";
+import { analyticsRouter } from "./analyticsRoutes.js";
 import { generateStudioLesson } from "./studioGenerate.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json({ limit: "2mb" }));
+
+app.use("/api/analytics", analyticsRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json(healthInfo());
