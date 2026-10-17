@@ -3,7 +3,7 @@ import express from "express";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
-import { healthInfo, synthesizeSpeech } from "./gcp.js";
+import { healthInfo, synthesizeSpeech, readGcsObject } from "./gcp.js";
 import { askModelTutor } from "./modelTutor.js";
 import { generateStudioLesson } from "./studioGenerate.js";
 
@@ -48,9 +48,30 @@ app.get("/api/studio/session/:id", async (req, res) => {
   const file = path.join(__dirname, "../../frontend/public/generated/studio", id, "session.json");
   try {
     const raw = await fs.readFile(file, "utf8");
-    res.json(JSON.parse(raw));
+    return res.json(JSON.parse(raw));
   } catch {
-    res.status(404).json({ error: "Session not found" });
+    try {
+      const stored = await readGcsObject(`studio/${id}/session.json`);
+      return res.json(JSON.parse(stored.body.toString("utf8")));
+    } catch {
+      return res.status(404).json({ error: "Session not found" });
+    }
+  }
+});
+
+app.get("/api/assets", async (req, res) => {
+  const name = String(req.query?.name || "");
+  // Only expose app-generated assets, never arbitrary bucket objects.
+  if (!name.startsWith("studio/") || name.split("/").some((part) => part === ".." || !part)) {
+    return res.status(400).json({ error: "Invalid asset name" });
+  }
+  try {
+    const asset = await readGcsObject(name);
+    res.set("Content-Type", asset.contentType);
+    res.set("Cache-Control", "public, max-age=3600");
+    res.send(asset.body);
+  } catch (err) {
+    res.status(err.status === 404 ? 404 : 502).json({ error: err.message });
   }
 });
 
