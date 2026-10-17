@@ -299,51 +299,6 @@ export async function synthesizeSpeech(text, lang = "en", ageGroup = "11-14", sp
   return Buffer.from(data.audioContent, "base64");
 }
 
-export async function translateText(text, target) {
-  if (!projectId() || process.env.TRANSLATE_ENABLED !== "true") return null;
-  if (!text || target === "en") return text;
-  const token = await accessToken();
-  const res = await fetch("https://translation.googleapis.com/language/translate/v2", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ q: text, target, format: "text", source: "en" }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error?.message || "Translation failed");
-  return data?.data?.translations?.[0]?.translatedText || text;
-}
-
-export async function insertAnalytics(rows) {
-  const dataset = process.env.BIGQUERY_DATASET;
-  const table = process.env.BIGQUERY_TABLE || "curiosity_events";
-  if (!dataset || !projectId() || rows.length === 0) return { skipped: true };
-  const token = await accessToken();
-  const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId()}/datasets/${dataset}/tables/${table}/insertAll`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      rows: rows.map((row) => ({ insertId: row.insert_id, json: row })),
-    }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error?.message || "BigQuery insert failed");
-  if (data.insertErrors?.length) {
-    throw new Error(JSON.stringify(data.insertErrors[0]).slice(0, 300));
-  }
-  return { inserted: rows.length };
-}
-
-export async function startVeoClip(prompt, options = {}) {
-  return startVeoGeneration({ prompt, ...options });
-}
-
 /**
  * Start Veo text or image→video. Returns operation name string.
  * Image: { imageBase64, mimeType } — uses the still as first frame.
@@ -573,10 +528,7 @@ export function healthInfo(extra = {}) {
     imagen: process.env.IMAGEN_MODEL || "gemini-2.5-flash-image",
     veo: process.env.VEO_MODEL || "veo-3.1-fast-generate-001",
     tts: Boolean(projectId()),
-    bigquery: Boolean(projectId() && process.env.BIGQUERY_DATASET),
-    translate: process.env.TRANSLATE_ENABLED === "true",
     bucket: process.env.GCS_BUCKET || null,
-    tripo: Boolean(process.env.TRIPO_API_KEY) && process.env.TRIPO_ENABLED !== "false",
     ...extra,
   };
 }

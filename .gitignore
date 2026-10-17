@@ -7,13 +7,10 @@ frontend/dist
 data
 tools/
 
-# Local TripoSR clone + Python env — never commit
-TripoSR/
+# Local Python env — never commit
 .venv/
 **/__pycache__/
 *.pyc
 
-# Generated packs: ignore by default; keep the frozen cell-mvp mock pack
+# Generated lesson files stay local
 frontend/public/generated/*
-!frontend/public/generated/cell-mvp/
-!frontend/public/generated/cell-mvp/**
