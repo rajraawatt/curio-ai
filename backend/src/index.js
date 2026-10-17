@@ -275,7 +275,7 @@ app.post("/api/prepare/assets", async (req, res) => {
 });
 
 
-app.post("/api/studio/rocket-five-minute", async (_req, res) => {
+app.post("/api/studio/rocket-five-minute", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
@@ -284,6 +284,7 @@ app.post("/api/studio/rocket-five-minute", async (_req, res) => {
   try {
     send("status", { notice: "Starting the five-minute Rocket Launch Mechanics lesson", progress: 1 });
     const result = await buildRocketFiveMinuteLesson({
+      forceRegenerate: req.body?.forceRegenerate === true,
       onProgress: async ({ notice, progress, partialResult }) => {
         send("status", { notice, progress });
         if (partialResult) send("chapter", { result: partialResult });
