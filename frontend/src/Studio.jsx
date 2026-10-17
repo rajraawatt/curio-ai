@@ -487,6 +487,7 @@ export function Studio({ mockId = "" }) {
   const mock = Boolean(mockSession);
   const [prompt, setPrompt] = useState(() => (mockSession ? mockSession.prompt : ""));
   const [busy, setBusy] = useState(false);
+  const [fiveMinuteBusy, setFiveMinuteBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -607,6 +608,54 @@ export function Studio({ mockId = "" }) {
       setCropping(false);
       setFocus(next.labels?.[0] || null);
       setMessages([]);
+    }
+  }
+
+  async function generateFiveMinuteRocketLesson() {
+    if (fiveMinuteBusy || !/rocket/i.test(session?.topic || "")) return;
+    setFiveMinuteBusy(true);
+    setError("");
+    setNotice("Starting the five-minute narrated lesson…");
+    setProgress(0);
+    try {
+      const res = await fetch("/api/studio/rocket-five-minute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({})
+      });
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Lesson generation failed (${res.status})`);
+      }
+      let result = null;
+      await readStudioStream(res, (eventName, data) => {
+        if (eventName === "status") {
+          if (data.notice) setNotice(data.notice);
+          if (data.progress != null) setProgress(Math.max(0, Math.min(100, Math.round(data.progress))));
+        }
+        if (eventName === "done" && data.result) result = data.result;
+        if (eventName === "error") throw new Error(data.error || "Lesson generation failed");
+      });
+      if (!result?.video || !Array.isArray(result.moments)) {
+        throw new Error("The server finished without returning a lesson video.");
+      }
+      setSession((previous) => previous ? {
+        ...previous,
+        id: "rocket-five-minute",
+        topic: "Rocket Launch Mechanics",
+        subtitle: "A five-minute narrated lesson with chapter navigation.",
+        video: result.video,
+        moments: result.moments,
+        errors: previous.errors || []
+      } : previous);
+      setMomentIndex(0);
+      setImageIndex(0);
+      setFocus(null);
+      setNotice("Five-minute lesson ready");
+    } catch (err) {
+      setError(err.message || "Could not generate the five-minute lesson");
+    } finally {
+      setFiveMinuteBusy(false);
     }
   }
 
@@ -1149,8 +1198,21 @@ export function Studio({ mockId = "" }) {
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <p className="m-0 text-sm font-semibold">Moments</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="m-0 text-sm font-semibold">Chapters / Moments</p>
+              {/rocket/i.test(session?.topic || "") && !session?.video?.isFiveMinute && (
+                <button
+                  type="button"
+                  disabled={fiveMinuteBusy}
+                  onClick={generateFiveMinuteRocketLesson}
+                  className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[#7C3AED] to-[#a855f7] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                >
+                  {fiveMinuteBusy ? <Loader2 size={14} className="animate-spin" /> : <Clapperboard size={14} />}
+                  {fiveMinuteBusy ? `Building lesson ${progress}%` : "Build 5-minute narrated lesson"}
+                </button>
+              )}
+              {fiveMinuteBusy && <p className="m-0 w-full text-xs font-medium text-[#c4b5fd]">{notice}</p>}
+              {error && <p className="m-0 w-full text-xs font-medium text-[#f9a8d4]">{error}</p>}
               <button type="button" className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-white/80 min-[1200px]:hidden" onClick={() => setDetailsOpen(true)}>
                 Moment details
               </button>
