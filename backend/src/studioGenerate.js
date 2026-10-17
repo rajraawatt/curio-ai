@@ -251,6 +251,8 @@ export function publicStudioSession(session) {
       caption: moment.caption,
       seekSec: moment.seekSec ?? null,
       durationSeconds: moment.durationSeconds || CHAPTER_SECONDS[session.moments.indexOf(moment)] || 40,
+      videoUrl: moment.videoUrl || null,
+      posterUrl: moment.posterUrl || null,
       narration: moment.narration || "",
       clipError: moment.clipError || null,
       labels: moment.labels,
@@ -575,6 +577,7 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     moment.seekSec = timelineSec;
     moment.durationSeconds = chapterSeconds;
     moment.shots = [];
+    const chapterClipPaths = [];
     const narrationLines = Array.from({ length: shotCount }, (_, shot) =>
       moment.shotNarration[shot] || (shot === 0 ? moment.narration : "")
     );
@@ -609,9 +612,19 @@ export async function generateStudioLesson({ prompt, onProgress }) {
         "-movflags", "+faststart", narratedClipPath,
       ]);
       clipPaths.push(narratedClipPath);
+      chapterClipPaths.push(narratedClipPath);
       moment.shots.push({ seekSec: timelineSec, durationSeconds: CLIP_SECONDS, narration: narrationLines[shot] });
       timelineSec += CLIP_SECONDS;
     }
+    // Publish each completed chapter immediately so the UI can play it while later chapters render.
+    const chapterPath = path.join(videoDir, "chapter-" + (i + 1) + "-lesson.mp4");
+    await concatClips(chapterClipPaths, chapterPath);
+    const chapterPoster = path.join(videoDir, "chapter-" + (i + 1) + "-poster.jpg");
+    await runFfmpeg(["-y", "-ss", "1", "-i", chapterPath, "-frames:v", "1", "-update", "1", "-q:v", "3", chapterPoster]).catch(() => {});
+    moment.videoUrl = "/generated/studio/" + sessionId + "/video/chapter-" + (i + 1) + "-lesson.mp4";
+    moment.posterUrl = "/generated/studio/" + sessionId + "/video/chapter-" + (i + 1) + "-poster.jpg";
+    session.video = { id: "studio-lesson", title: session.topic, durationSeconds: timelineSec, chapterMode: true, captions: [{ atSec: 0, text: moment.caption }] };
+    await emit("Chapter " + (i + 1) + " ready — playing while the next chapter generates", Math.min(95, 48 + Math.round(((i + 1) / session.moments.length) * 45)));
   }
   if (!clipPaths.length) throw new Error("Veo did not generate a video for this topic. Check Google Cloud Veo access and try again.");
   const finalPath = path.join(videoDir, "lesson-" + sessionId + ".mp4");
