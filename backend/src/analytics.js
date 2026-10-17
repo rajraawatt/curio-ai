@@ -108,6 +108,7 @@ export async function getAnalyticsDashboard({ days = 14 } = {}) {
       COUNTIF(event_type = 'lesson_started') AS lessons_started,
       COUNTIF(event_type = 'question_asked') AS questions_asked,
       COUNTIF(event_type = 'moment_selected') AS moments_explored,
+      COUNTIF(event_type = 'answer_generated') AS answers_generated,
       COUNT(DISTINCT session_id) AS active_sessions,
       COUNT(DISTINCT IF(event_type = 'question_asked', session_id, NULL)) AS curious_sessions,
       SAFE_DIVIDE(COUNTIF(event_type = 'question_asked'), COUNTIF(event_type = 'lesson_started')) AS questions_per_started_lesson,
