@@ -122,7 +122,6 @@ async function normalizeIntro(source, output, narrationPath) {
 }
 
 async function renderChapter(imagePath, audioPath, output, durationSeconds) {
-  const frames = Math.round(durationSeconds * FPS);
   await runFfmpeg([
     "-y", "-loop", "1", "-framerate", String(FPS), "-i", imagePath, "-i", audioPath,
     "-filter_complex",
@@ -178,7 +177,7 @@ export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
     });
     chapters.push({
       id: "original-rocket-footage",
-      title: "1. The launch: starting point",
+      title: "Original launch footage",
       startSeconds: 0,
       endSeconds: INTRO_SECONDS,
       concepts: ["The launch is the starting point for the lesson"]
