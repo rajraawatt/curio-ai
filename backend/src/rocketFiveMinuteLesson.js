@@ -13,6 +13,7 @@ const INTRO_SECONDS = 16;
 const WIDTH = 1280;
 const HEIGHT = 720;
 const FPS = 24;
+const INTRO_NARRATION = "Here is our starting point: a launch vehicle ready to leave Earth. Over the next five minutes, we will trace the forces and systems that make that possible, from the propellant tanks to the engine nozzle, liftoff, and the path toward orbit.";
 
 const CHAPTERS = [
   {
@@ -107,13 +108,13 @@ async function makeImage(chapter, index, sessionDir) {
   return { imagePath, url: `/generated/studio/rocket-five-minute/chapter-${index + 1}.${ext}` };
 }
 
-async function normalizeIntro(source, output) {
+async function normalizeIntro(source, output, narrationPath) {
   await runFfmpeg([
     "-y", "-i", source,
-    "-f", "lavfi", "-t", String(INTRO_SECONDS), "-i", "anullsrc=r=48000:cl=stereo",
+    "-i", narrationPath,
     "-filter_complex",
-    `[0:v]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},setsar=1,fps=${FPS},format=yuv420p,trim=duration=${INTRO_SECONDS},setpts=PTS-STARTPTS[v]`,
-    "-map", "[v]", "-map", "1:a", "-t", String(INTRO_SECONDS),
+    `[0:v]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},setsar=1,fps=${FPS},format=yuv420p,trim=duration=${INTRO_SECONDS},setpts=PTS-STARTPTS[v];[1:a]aresample=48000,apad[a]`,
+    "-map", "[v]", "-map", "[a]", "-t", String(INTRO_SECONDS),
     "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
     "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
     "-movflags", "+faststart", output
@@ -157,8 +158,31 @@ export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
   if (sourceExists) {
     await emit("Preparing the existing Rocket Launch Mechanics footage…", 4);
     const introPath = path.join(videoDir, "rocket-intro-normalized.mp4");
-    await normalizeIntro(SOURCE_VIDEO, introPath);
+    const introAudioPath = path.join(sessionDir, "rocket-intro-narration.mp3");
+    const introAudio = await synthesizeSpeech(INTRO_NARRATION, "en", "11-14");
+    if (!introAudio?.length) throw new Error("Text-to-Speech returned no intro narration.");
+    await fs.writeFile(introAudioPath, introAudio);
+    await normalizeIntro(SOURCE_VIDEO, introPath, introAudioPath);
     clips.push(introPath);
+    moments.push({
+      id: "original-rocket-footage",
+      title: "Original launch footage",
+      summary: "Start with the saved Rocket Launch Mechanics video.",
+      caption: "We will trace how a rocket leaves Earth.",
+      seekSec: 0,
+      points: [INTRO_NARRATION],
+      labels: [],
+      images: [{ id: "wide", kind: "wide", url: "/generated/studio/1791914535838/moment-1-image-detail.png", error: null, positions: {} }],
+      narration: INTRO_NARRATION,
+      durationSeconds: INTRO_SECONDS
+    });
+    chapters.push({
+      id: "original-rocket-footage",
+      title: "1. The launch: starting point",
+      startSeconds: 0,
+      endSeconds: INTRO_SECONDS,
+      concepts: ["The launch is the starting point for the lesson"]
+    });
   }
 
   for (let i = 0; i < CHAPTERS.length; i += 1) {
@@ -215,6 +239,7 @@ export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
   const video = {
     id: "studio-lesson-five-minute",
     merged: true,
+    isFiveMinute: true,
     title: "Rocket Launch Mechanics — 5-minute lesson",
     url: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute.mp4",
     posterUrl: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute-poster.jpg",
