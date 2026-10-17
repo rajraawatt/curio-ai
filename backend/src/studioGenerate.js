@@ -535,7 +535,6 @@ export async function generateStudioLesson({ prompt, onProgress }) {
       }
       // Continue attempting the second reference image if one image provider request fails.
     }
-    }
   }
 
   const clipPaths = [];
