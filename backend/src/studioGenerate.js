@@ -512,44 +512,27 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     }
   }
 
-  if (isRocketPrompt(text)) {
-    session.topic = ROCKET_TOPIC;
-    await emit("Using the saved Rocket Launch Mechanics video…", 70);
-    session.moments.forEach((moment, index) => {
-      moment.seekSec = index * CLIP_SECONDS;
-    });
-    session.video = {
-      id: "studio-lesson",
-      merged: true,
-      title: ROCKET_TOPIC,
-      url: ROCKET_VIDEO.url,
-      posterUrl: ROCKET_VIDEO.posterUrl,
-      durationSeconds: Math.max(session.moments.length, 1) * CLIP_SECONDS,
-      captions: session.moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
-    };
-    await emit("Lesson video ready", 100);
-  } else {
-    await emit("Using a saved lesson video…", 70);
-    const saved = await findLatestLessonVideo(sessionId);
-    if (!saved) {
-      session.errors.push("No saved lesson video was found on disk.");
-      await emit("No saved lesson video was found.", 96);
-    } else {
-      session.moments.forEach((moment, index) => {
-        moment.seekSec = index * CLIP_SECONDS;
-      });
-      session.video = {
-        id: "studio-lesson",
-        merged: true,
-        title: session.topic,
-        url: saved.url,
-        posterUrl: saved.posterUrl,
-        durationSeconds: session.moments.length * CLIP_SECONDS,
-        captions: session.moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
-      };
-      await emit("Lesson video ready", 100);
-    }
+  const clipPaths = [];
+  for (let i = 0; i < session.moments.length; i += 1) {
+    const moment = session.moments[i];
+    const image = moment.images.find((item) => item.kind === "wide" && item.filePath) || moment.images.find((item) => item.filePath);
+    if (!image) { moment.clipError = "A generated reference image is required before video generation."; session.errors.push(moment.title + ": " + moment.clipError); continue; }
+    const clipPath = path.join(videoDir, "moment-" + (i + 1) + "-veo.mp4");
+    await emit("Calling Veo API to generate a fresh video for " + moment.title + "…", 48 + Math.round((i / session.moments.length) * 35));
+    try {
+      await generateVeoClipFromImage({ prompt: STUDIO_VIDEO_STYLE + " Topic: " + text + ". Scene: " + moment.videoPrompt + ". Generate visuals only for this requested topic; do not show rockets unless the topic is about rockets.", imageBase64: image.base64, mimeType: image.mimeType || "image/png", destPath: clipPath, durationSeconds: CLIP_SECONDS, generateAudio: false, aspectRatio: "16:9" });
+      clipPaths.push(clipPath);
+      moment.seekSec = (clipPaths.length - 1) * (CLIP_SECONDS - JOIN_FADE_SECONDS);
+    } catch (err) { moment.clipError = err.message || "Veo video generation failed"; session.errors.push(moment.title + ": " + moment.clipError); await emit("Video generation failed for " + moment.title + ": " + moment.clipError, null); }
   }
-
+  if (!clipPaths.length) throw new Error("Veo did not generate a video for this topic. Check Google Cloud Veo access and try again.");
+  const finalPath = path.join(videoDir, "lesson-" + sessionId + ".mp4");
+  if (clipPaths.length === 1) await normalizeClip(clipPaths[0], finalPath);
+  else await mergeTwoClips(clipPaths[0], clipPaths[1], finalPath);
+  const posterPath = path.join(videoDir, "lesson-" + sessionId + "-poster.jpg");
+  await runFfmpeg(["-y", "-ss", "1", "-i", finalPath, "-frames:v", "1", "-update", "1", "-q:v", "3", posterPath]).catch(() => {});
+  session.moments.forEach((moment, index) => { if (moment.seekSec == null) moment.seekSec = index * CLIP_SECONDS; });
+  session.video = { id: "studio-lesson", merged: true, title: session.topic, url: "/generated/studio/" + sessionId + "/video/lesson-" + sessionId + ".mp4", posterUrl: "/generated/studio/" + sessionId + "/video/lesson-" + sessionId + "-poster.jpg", durationSeconds: clipPaths.length * CLIP_SECONDS, captions: session.moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })) };
+  await emit("Fresh Veo video generated for this topic", 100);
   return publicStudioSession(session);
 }
