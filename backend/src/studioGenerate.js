@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import ffmpegPath from "ffmpeg-static";
-import { generateDiagram, geminiGenerate, generateVeoClipFromImage } from "./gcp.js";
+import { generateDiagram, geminiGenerate, generateVeoClipFromImage, uploadGcsObject } from "./gcp.js";
 import { writeMergedPoster } from "./mergeLessonVideo.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -421,13 +421,15 @@ async function writeStill(dir, sessionId, momentIndex, image) {
   const ext = mimeType.includes("jpeg") || mimeType.includes("jpg") ? "jpg" : "png";
   const name = `moment-${momentIndex + 1}-image-${image.kind}.${ext}`;
   const filePath = path.join(dir, name);
-  await fs.writeFile(filePath, Buffer.from(base64, "base64"));
+  const bytes = Buffer.from(base64, "base64");
+  await fs.writeFile(filePath, bytes);
   const stamp = Date.now();
+  const storedUrl = await uploadGcsObject(`studio/${sessionId}/${name}`, bytes, mimeType);
   return {
     filePath,
     mimeType,
     base64,
-    url: `/generated/studio/${sessionId}/${name}?t=${stamp}`,
+    url: storedUrl || `/generated/studio/${sessionId}/${name}?t=${stamp}`,
   };
 }
 
@@ -567,7 +569,9 @@ export async function generateStudioLesson({ prompt, onProgress }) {
       updatedAt: Date.now(),
       session: publicStudioSession(session),
     };
-    await fs.writeFile(path.join(sessionDir, "session.json"), JSON.stringify(payload));
+    const serialized = JSON.stringify(payload);
+    await fs.writeFile(path.join(sessionDir, "session.json"), serialized);
+    await uploadGcsObject(`studio/${sessionId}/session.json`, Buffer.from(serialized), "application/json");
     if (onProgress) await onProgress(payload);
   };
 
@@ -668,6 +672,21 @@ export async function generateStudioLesson({ prompt, onProgress }) {
       const posterName = `lesson-${sessionId}-poster.jpg`;
       const posterPath = path.join(videoDir, posterName);
       await writeMergedPoster(lessonPath, posterPath).catch(() => {});
+      const storedVideoUrl = await uploadGcsObject(
+        `studio/${sessionId}/video/${lessonName}`,
+        await fs.readFile(lessonPath),
+        "video/mp4",
+      );
+      let storedPosterUrl = null;
+      try {
+        storedPosterUrl = await uploadGcsObject(
+          `studio/${sessionId}/video/${posterName}`,
+          await fs.readFile(posterPath),
+          "image/jpeg",
+        );
+      } catch {
+        // Poster generation is best-effort; the video remains usable without it.
+      }
       session.moments.forEach((moment, index) => {
         moment.seekSec = index * CLIP_SECONDS;
       });
@@ -675,8 +694,8 @@ export async function generateStudioLesson({ prompt, onProgress }) {
         id: "studio-lesson",
         merged: clipPaths.length > 1,
         title: session.topic,
-        url: `/generated/studio/${sessionId}/video/${lessonName}?t=${Date.now()}`,
-        posterUrl: `/generated/studio/${sessionId}/video/${posterName}?t=${Date.now()}`,
+        url: storedVideoUrl || `/generated/studio/${sessionId}/video/${lessonName}?t=${Date.now()}`,
+        posterUrl: storedPosterUrl || `/generated/studio/${sessionId}/video/${posterName}?t=${Date.now()}`,
         durationSeconds: clipPaths.length * CLIP_SECONDS,
         captions: session.moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
       };
