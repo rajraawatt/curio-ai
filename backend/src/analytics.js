@@ -109,6 +109,8 @@ export async function getAnalyticsDashboard({ days = 14 } = {}) {
       COUNTIF(event_type = 'question_asked') AS questions_asked,
       COUNTIF(event_type = 'moment_selected') AS moments_explored,
       COUNT(DISTINCT session_id) AS active_sessions,
+      COUNT(DISTINCT IF(event_type = 'question_asked', session_id, NULL)) AS curious_sessions,
+      SAFE_DIVIDE(COUNTIF(event_type = 'question_asked'), COUNTIF(event_type = 'lesson_started')) AS questions_per_started_lesson,
       SUM(COALESCE(estimated_ai_cost_usd, 0)) AS estimated_ai_cost_usd
       FROM ${table}
       WHERE event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL @days DAY)`, { days: range }),
@@ -136,7 +138,7 @@ export async function getAnalyticsDashboard({ days = 14 } = {}) {
       FROM ${table}
       WHERE event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL @days DAY)
         AND chapter_id IS NOT NULL
-      GROUP BY chapter_id ORDER BY questions DESC, selections DESC LIMIT 8`, { days: range }),
+      GROUP BY lesson_id, chapter_id ORDER BY questions DESC, selections DESC LIMIT 8`, { days: range }),
   ]);
   return {
     config,
