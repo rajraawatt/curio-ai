@@ -70,16 +70,32 @@ const CHAPTERS = [
   }
 ];
 
-function runFfmpeg(args) {
+function runFfmpeg(args, { timeoutMs = 120_000, onHeartbeat } = {}) {
   return new Promise((resolve, reject) => {
     if (!ffmpegPath) return reject(new Error("ffmpeg-static is unavailable"));
     const child = spawn(ffmpegPath, args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-    child.on("error", reject);
+    let settled = false;
+    const heartbeat = onHeartbeat ? setInterval(() => {
+      Promise.resolve(onHeartbeat()).catch(() => {});
+    }, 10_000) : null;
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(new Error(`FFmpeg timed out after ${Math.round(timeoutMs / 1000)} seconds${stderr.trim() ? `: ${stderr.split("\\n").filter(Boolean).slice(-3).join(" ")}` : ""}`));
+    }, timeoutMs);
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (heartbeat) clearInterval(heartbeat);
+      if (error) reject(error);
+      else resolve();
+    };
+    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk.toString()).slice(-12_000); });
+    child.on("error", finish);
     child.on("close", (code) => code === 0
-      ? resolve()
-      : reject(new Error(stderr.split("\n").filter(Boolean).slice(-5).join(" ") || `ffmpeg exited ${code}`)));
+      ? finish()
+      : finish(new Error(stderr.split("\\n").filter(Boolean).slice(-5).join(" ") || `ffmpeg exited ${code}`)));
   });
 }
 
@@ -211,11 +227,14 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
     }
     const clipPath = path.join(videoDir, "chapter-" + number + "-narrated.mp4");
     if (!(await fileExistsWithContent(clipPath, 100_000))) {
-      await emit("Local processing: FFmpeg is combining chapter " + number + " motion and narration (no generation API)", 12 + i * 10);
+      await emit("Local processing: FFmpeg is combining chapter " + number + " motion and narration", 12 + i * 10);
       await runFfmpeg(["-y", "-stream_loop", "-1", "-i", motionPath, "-i", audioPath, "-filter_complex",
         "[0:v]scale=" + WIDTH + ":" + HEIGHT + ":force_original_aspect_ratio=increase,crop=" + WIDTH + ":" + HEIGHT + ",fps=" + FPS + ",setsar=1,format=yuv420p[v];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a]",
-        "-map", "[v]", "-map", "[a]", "-shortest", "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", clipPath]);
+        "-map", "[v]", "-map", "[a]", "-shortest", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", clipPath], {
+          timeoutMs: 120_000,
+          onHeartbeat: () => emit("Still processing chapter " + number + " video locally with FFmpeg…", null)
+        });
     } else {
       await emit("Cache hit: reusing completed chapter " + number + " video — no generation API call", null);
     }
@@ -230,8 +249,24 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
       videoUrl: "/generated/studio/rocket-five-minute/video/chapter-" + number + "-narrated.mp4", posterUrl: image.url, durationSeconds };
     moments.push(moment);
     chapters.push({ id: chapter.id, title: chapter.title, startSeconds, endSeconds, durationSeconds, videoUrl: moment.videoUrl, concepts: [chapter.caption] });
+    const partialVideo = {
+      id: "studio-lesson-five-minute",
+      merged: true,
+      chapterMode: true,
+      title: "Rocket Launch Mechanics — narrated video lesson",
+      url: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute.mp4",
+      posterUrl: moments[0]?.posterUrl || null,
+      durationSeconds: timelineSeconds,
+      chapters: [...chapters],
+      captions: []
+    };
+    await onProgress?.({
+      notice: "Chapter " + number + " is ready to watch",
+      progress: Math.min(90, 12 + number * 9),
+      partialResult: { video: partialVideo, moments: [...moments] }
+    });
   }
-  await emit("Assembling the combined lesson for download…", 94);
+  await emit("All chapters are ready. Assembling the combined lesson for download…", 94);
   const listPath = path.join(videoDir, "rocket-five-minute-concat.txt");
   const list = clips.map((file) => "file '" + file.replace(/'/g, "'\\''") + "'").join("\n");
   await fs.writeFile(listPath, list, "utf8");
