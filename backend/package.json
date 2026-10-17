@@ -10,6 +10,7 @@
   "dependencies": {
     "express": "^4.21.2",
     "ffmpeg-static": "^5.3.0",
-    "google-auth-library": "^9.15.1"
+    "google-auth-library": "^9.15.1",
+    "@google-cloud/bigquery": "^7.9.0"
   }
 }
