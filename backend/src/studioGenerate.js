@@ -167,12 +167,12 @@ function planPrompt(prompt) {
 Prompt: "${String(prompt).replace(/"/g, "'")}"
 
 Return JSON only. Plan exactly 3 connected chapters for a complete narrated lesson lasting about 3 minutes. Chapter 1 has 5 shots (40 seconds), chapter 2 has 8 shots (64 seconds), and chapter 3 has 10 shots (80 seconds). Total target is about 184 seconds. Each shot is a distinct 8-second visual and has its own short narration line synchronized to that shot.
-Write a subject sentence that names the exact thing and the place. Both moments must use that same subject and place.
+Write a subject sentence that names the exact thing and the place. All three chapters must use that same subject and place.
 Chapter 1 introduces the topic, chapter 2 develops the mechanism, and chapter 3 explains the consequence/application. The chapters must form one coherent lesson, not unrelated topics.
 Each chapter has exactly 2 reference image prompts: a wide 16:9 view and a closer 16:9 view of the same subject. Photorealistic, not a diagram. Never a square frame. Include shotNarration as an array of exactly 5 lines for chapter 1, 8 lines for chapter 2, and 10 lines for chapter 3. Each line should be natural spoken narration that takes about 6-8 seconds to say, explains the visual in that shot, and progresses the lesson without repeating previous lines. Include narration as a concise chapter overview.
 Each moment has 2 or 3 part labels. Every label needs a one-sentence blurb, 3 short overview lines, 3 quick facts, 3 function steps, 3 structure rows, and 2 related parts. Facts must be true for a classroom, not invented numbers. Exactly 3 short summary points.
 Captions are 8 words or fewer.
-Each video prompt is silent motion in a full 16:9 frame, with the subject filling the picture and no empty borders. Do not write a sentence for someone to read aloud. The second video prompt must continue the first, not repeat it.
+Each video prompt is silent motion in a full 16:9 frame, with the subject filling the picture and no empty borders. Do not write a sentence for someone to read aloud. Later chapters must logically continue earlier chapters, not repeat them.
 
 {
   "topic": "short topic",
