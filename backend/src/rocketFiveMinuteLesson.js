@@ -160,19 +160,12 @@ const MOTION_SHOT_SECONDS = 8;
 const GENERATION_REVISION = 2;
 
 function splitNarrationIntoShots(narration, shotCount) {
-  const sentences = String(narration || "").match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [String(narration || "")];
-  const groups = Array.from({ length: shotCount }, () => []);
-  let wordCounts = Array(shotCount).fill(0);
-  for (const sentence of sentences) {
-    const words = sentence.trim().split(/\\s+/).length;
-    let target = 0;
-    for (let i = 1; i < shotCount; i += 1) {
-      if (wordCounts[i] < wordCounts[target]) target = i;
-    }
-    groups[target].push(sentence.trim());
-    wordCounts[target] += words;
-  }
-  return groups.map((group, index) => group.join(" ") || sentences[Math.min(index, sentences.length - 1)] || narration);
+  const words = String(narration || "").trim().split(/\s+/).filter(Boolean);
+  const chunkSize = Math.ceil(words.length / shotCount);
+  return Array.from({ length: shotCount }, (_, index) => {
+    const chunk = words.slice(index * chunkSize, (index + 1) * chunkSize);
+    return chunk.join(" ") || words.slice(-Math.max(1, chunkSize)).join(" ") || String(narration || "");
+  });
 }
 
 async function assembleMotionShots(shotPaths, destPath) {
@@ -180,7 +173,7 @@ async function assembleMotionShots(shotPaths, destPath) {
   const dir = path.dirname(destPath);
   const listPath = path.join(dir, ".motion-shots-" + process.pid + "-" + Date.now() + ".txt");
   const tmpPath = destPath + ".tmp.mp4";
-  await fs.writeFile(listPath, shotPaths.map((file) => "file '" + file.replace(/'/g, "'\\''") + "'").join("\\n"), "utf8");
+  await fs.writeFile(listPath, shotPaths.map((file) => "file '" + file.replace(/'/g, "'\\''") + "'").join("\n"), "utf8");
   try {
     await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-an", "-vf",
       "scale=" + WIDTH + ":" + HEIGHT + ":force_original_aspect_ratio=increase,crop=" + WIDTH + ":" + HEIGHT + ",fps=" + FPS + ",setsar=1,format=yuv420p",
