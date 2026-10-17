@@ -448,50 +448,55 @@ async function concatClips(inputPaths, destPath) {
     await normalizeClip(inputPaths[i], output);
     normalized.push(output);
   }
-  const listPath = path.join(dir, `.studio-concat-${Date.now()}.txt`);
-  const list = normalized.map((file) => `file '${file.replace(/'/g, "'\\''")}'`).join("\n");
-  const tmpPath = path.join(dir, `.studio-lesson.${process.pid}.${Date.now()}.tmp.mp4`);
+  const blends = [];
   try {
-    await fs.writeFile(listPath, list);
-    await runFfmpeg([
-      "-y",
-      "-fflags",
-      "+genpts",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
-      listPath,
-      "-c:v",
-      "libx264",
-      "-pix_fmt",
-      "yuv420p",
-      "-profile:v",
-      "main",
-      "-preset",
-      "fast",
-      "-crf",
-      "20",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
-      "-ar",
-      "48000",
-      "-ac",
-      "2",
-      "-movflags",
-      "+faststart",
-      tmpPath,
-    ]);
-    await fs.rename(tmpPath, destPath);
-  } catch (err) {
-    await fs.unlink(tmpPath).catch(() => {});
-    throw err;
+    let current = normalized[0];
+    let duration = CLIP_SECONDS;
+    for (let i = 1; i < normalized.length; i += 1) {
+      const output = path.join(dir, `.studio-blend-${i}.${process.pid}.mp4`);
+      blends.push(output);
+      const offset = Math.max(0, duration - JOIN_FADE_SECONDS).toFixed(3);
+      await runFfmpeg([
+        "-y",
+        "-i",
+        current,
+        "-i",
+        normalized[i],
+        "-filter_complex",
+        `[0:v]setpts=PTS-STARTPTS,fps=24,format=yuv420p[v0];[1:v]setpts=PTS-STARTPTS,fps=24,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${JOIN_FADE_SECONDS}:offset=${offset}[v];[0:a]asetpts=PTS-STARTPTS[a0];[1:a]asetpts=PTS-STARTPTS[a1];[a0][a1]acrossfade=d=${JOIN_FADE_SECONDS}[a]`,
+        "-map",
+        "[v]",
+        "-map",
+        "[a]",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-profile:v",
+        "main",
+        "-preset",
+        "fast",
+        "-crf",
+        "20",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        output,
+      ]);
+      duration += CLIP_SECONDS - JOIN_FADE_SECONDS;
+      current = output;
+    }
+    await fs.copyFile(current, destPath);
   } finally {
-    await fs.unlink(listPath).catch(() => {});
     await Promise.all(normalized.map((file) => fs.unlink(file).catch(() => {})));
+    await Promise.all(blends.map((file) => fs.unlink(file).catch(() => {})));
   }
 }
 
@@ -862,8 +867,8 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     if (ready.length === 1) await fs.copyFile(ready[0].file, chapterPath);
     else await concatClips(ready.map((item) => item.file), chapterPath);
     chapterPaths.push(chapterPath);
-    const played = ready.length * CLIP_SECONDS;
-    const stepSeconds = CLIP_SECONDS;
+    const played = blendedSeconds(ready.length);
+    const stepSeconds = ready.length > 1 ? CLIP_SECONDS - JOIN_FADE_SECONDS : CLIP_SECONDS;
     const chapterCaptions = [];
     ready.forEach((item, step) => {
       const text = moment.narration?.[item.index] || moment.caption;
