@@ -685,11 +685,49 @@ export function Studio({ mockId = "" }) {
     setCropping(false);
     setMessages([]);
     if (/rocket/i.test(text)) {
-      const saved = savedRocketSession();
-      setSession(saved);
-      setFocus(saved.moments[0].labels[0]);
-      setNotice("");
-      setBusy(false);
+      try {
+        const res = await fetch("/api/studio/rocket-five-minute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+          body: JSON.stringify({ topic: text }),
+        });
+        if (!res.ok || !res.body) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `Lesson generation failed (${res.status})`);
+        }
+        let result = null;
+        let streamError = "";
+        await readStudioStream(res, (eventName, data) => {
+          if (eventName === "status") {
+            if (data.notice) setNotice(data.notice);
+            if (data.progress != null) setProgress(Math.max(0, Math.min(100, Math.round(data.progress))));
+          }
+          if (eventName === "done" && data.result) result = data.result;
+          if (eventName === "error") streamError = data.error || "Lesson generation failed";
+        });
+        if (streamError) throw new Error(streamError);
+        if (!result?.video || !Array.isArray(result.moments)) {
+          throw new Error("The server finished without returning a lesson video.");
+        }
+        const saved = savedRocketSession();
+        setSession({
+          ...saved,
+          id: "rocket-five-minute",
+          topic: text,
+          prompt: text,
+          subtitle: "A narrated lesson with clickable chapters.",
+          video: result.video,
+          moments: result.moments,
+        });
+        setMomentIndex(0);
+        setImageIndex(0);
+        setFocus(null);
+        setNotice("Lesson ready");
+      } catch (err) {
+        setError(err.message || "Could not generate the lesson");
+      } finally {
+        setBusy(false);
+      }
       return;
     }
     try {
@@ -998,7 +1036,7 @@ export function Studio({ mockId = "" }) {
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate text-xs font-black">{item.title}</span>
-                        <span className="block text-[0.65rem] font-bold text-white/40">{clock(item.seekSec)}</span>
+                        <span className="block text-[0.65rem] font-bold text-white/40">{clock(item.seekSec)} – {clock(session?.moments?.[index + 1]?.seekSec ?? ((item.seekSec || 0) + (item.durationSeconds || 8)))}</span>
                       </span>
                     </li>
                   );
@@ -1082,10 +1120,10 @@ export function Studio({ mockId = "" }) {
                     <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10">
                       <div
                         className="h-full rounded-full bg-[#a855f7]"
-                        style={{ width: `${((momentIndex + 1) / Math.max(session?.moments?.length || 1, 1)) * 100}%` }}
+                        style={{ width: busy && !session?.moments?.length ? `${progress}%` : `${((momentIndex + 1) / Math.max(session?.moments?.length || 1, 1)) * 100}%` }}
                       />
                     </div>
-                    <span className="shrink-0 text-[0.65rem] font-medium text-white/50">{momentIndex + 1} / {Math.max(session?.moments?.length || 0, 1)}</span>
+                    <span className="shrink-0 text-[0.65rem] font-medium text-white/50">{busy && !session?.moments?.length ? `${progress}%` : `${momentIndex + 1} / ${Math.max(session?.moments?.length || 0, 1)}`}</span>
                   </div>
                   {notice && <p className="m-0 mt-1 text-xs font-bold text-[#c4b5fd]">{notice}</p>}
                   {error && <p className="m-0 mt-1 text-xs font-bold text-[#f9a8d4]">{error}</p>}
@@ -1202,18 +1240,6 @@ export function Studio({ mockId = "" }) {
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="m-0 text-sm font-semibold">Chapters / Moments</p>
-              {/rocket/i.test(session?.topic || "") && !session?.video?.isFiveMinute && (
-                <button
-                  type="button"
-                  disabled={fiveMinuteBusy}
-                  onClick={generateFiveMinuteRocketLesson}
-                  className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[#7C3AED] to-[#a855f7] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
-                >
-                  {fiveMinuteBusy ? <Loader2 size={14} className="animate-spin" /> : <Clapperboard size={14} />}
-                  {fiveMinuteBusy ? `Building lesson ${progress}%` : "Build 5-minute narrated lesson"}
-                </button>
-              )}
-              {fiveMinuteBusy && <p className="m-0 w-full text-xs font-medium text-[#c4b5fd]">{notice}</p>}
               {error && <p className="m-0 w-full text-xs font-medium text-[#f9a8d4]">{error}</p>}
               <button type="button" className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-white/80 min-[1200px]:hidden" onClick={() => setDetailsOpen(true)}>
                 Moment details
