@@ -1181,7 +1181,7 @@ export function Studio({ mockId = "" }) {
                             <span className={`block text-[0.82rem] font-semibold leading-snug ${done ? "text-white/70" : "text-white"}`}>{item.title}</span>
                             <span className="block text-[0.75rem] font-medium leading-snug text-white/55">{item.summary || item.caption}</span>
                           </span>
-                          <span className="shrink-0 text-[0.65rem] font-medium text-white/40">{clock(item.seekSec)}</span>
+                          <span className="shrink-0 text-[0.65rem] font-medium text-white/40">{clock(item.durationSeconds || 8)}</span>
                         </button>
                       </li>
                     );
@@ -1291,7 +1291,7 @@ export function Studio({ mockId = "" }) {
                       <span className={`absolute left-1 top-1 grid h-5 w-5 place-items-center rounded-full text-[0.65rem] font-black text-white ${active ? "bg-[#7C3AED]" : "bg-black/70"}`}>{index + 1}</span>
                     </div>
                     <span className="block truncate px-2 pt-1 text-[0.72rem] font-extrabold">{item?.title || `Moment ${index + 1}`}</span>
-                    <span className="block px-2 pb-1 text-[0.68rem] font-bold text-white/45">{clock(item?.seekSec ?? index * 8)} – {clock(session?.moments?.[index + 1]?.seekSec ?? (item?.seekSec ?? index * 8) + (item?.durationSeconds || 8))}</span>
+                    <span className="block px-2 pb-1 text-[0.68rem] font-bold text-white/45">0:00 – {clock(item?.durationSeconds || 8)}</span>
                   </button>
                 );
               })}
