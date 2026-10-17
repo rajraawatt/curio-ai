@@ -489,6 +489,7 @@ export function Studio({ mockId = "" }) {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [notice, setNotice] = useState("");
+  const [generationLogs, setGenerationLogs] = useState([]);
   const [error, setError] = useState("");
   const [session, setSession] = useState(() => mockSession);
   const [momentIndex, setMomentIndex] = useState(0);
@@ -643,6 +644,7 @@ export function Studio({ mockId = "" }) {
     setProgress(0);
     setError("");
     setNotice("Starting…");
+    setGenerationLogs([{ time: new Date().toLocaleTimeString(), message: "Started lesson generation request." }]);
     setSession(null);
     setMomentIndex(0);
     setImageIndex(0);
@@ -665,7 +667,10 @@ export function Studio({ mockId = "" }) {
         let streamError = "";
         await readStudioStream(res, (eventName, data) => {
           if (eventName === "status") {
-            if (data.notice) setNotice(data.notice);
+            if (data.notice) {
+              setNotice(data.notice);
+              setGenerationLogs((items) => [...items, { time: new Date().toLocaleTimeString(), message: data.notice }].slice(-35));
+            }
             if (data.progress != null) setProgress(Math.max(0, Math.min(100, Math.round(data.progress))));
           }
           if (eventName === "done" && data.result) result = data.result;
@@ -1094,6 +1099,18 @@ export function Studio({ mockId = "" }) {
                   </div>
                   {notice && <p className="m-0 mt-1 text-xs font-bold text-[#c4b5fd]">{notice}</p>}
                   {error && <p className="m-0 mt-1 text-xs font-bold text-[#f9a8d4]">{error}</p>}
+                  {busy && generationLogs.length > 0 && (
+                    <div className="mt-3 rounded-lg border border-white/10 bg-black/30 p-2.5">
+                      <p className="m-0 mb-1.5 text-[0.68rem] font-bold uppercase tracking-wide text-white/55">Generation activity</p>
+                      <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
+                        {generationLogs.slice(-8).map((entry, index) => (
+                          <p key={entry.time + entry.message + index} className="m-0 break-words text-[0.7rem] leading-snug text-white/70">
+                            <span className="mr-1 text-white/35">{entry.time}</span>{entry.message}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {busy && !session?.moments?.length && (
                   <div className="flex items-center gap-2 text-sm font-bold text-white/60">
