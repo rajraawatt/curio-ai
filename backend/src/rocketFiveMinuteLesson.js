@@ -152,7 +152,18 @@ async function renderChapter(imagePath, audioPath, output, durationSeconds) {
   ]);
 }
 
-export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
+let activeBuildPromise = null;
+
+// Coalesce repeated clicks/requests while a lesson is being generated.
+export function buildRocketFiveMinuteLesson(options = {}) {
+  if (activeBuildPromise) return activeBuildPromise;
+  activeBuildPromise = buildRocketFiveMinuteLessonOnce(options).finally(() => {
+    activeBuildPromise = null;
+  });
+  return activeBuildPromise;
+}
+
+async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
   const sessionDir = path.join(GENERATED_ROOT, "studio", "rocket-five-minute");
   const videoDir = path.join(sessionDir, "video");
   await fs.mkdir(videoDir, { recursive: true });
