@@ -126,7 +126,7 @@ async function renderChapter(imagePath, audioPath, output, durationSeconds) {
   await runFfmpeg([
     "-y", "-loop", "1", "-framerate", String(FPS), "-i", imagePath, "-i", audioPath,
     "-filter_complex",
-    `[0:v]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='min(zoom+0.00018,1.07)':d=${frames}:s=${WIDTH}x${HEIGHT}:fps=${FPS},setsar=1,format=yuv420p[v];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,apad[a]`,
+    `[0:v]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='min(zoom+0.00018,1.07)':d=1:s=${WIDTH}x${HEIGHT}:fps=${FPS},setsar=1,format=yuv420p[v];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,apad[a]`,
     "-map", "[v]", "-map", "[a]", "-t", String(durationSeconds),
     "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
     "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2",
@@ -159,7 +159,7 @@ export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
     await emit("Preparing the existing Rocket Launch Mechanics footage…", 4);
     const introPath = path.join(videoDir, "rocket-intro-normalized.mp4");
     const introAudioPath = path.join(sessionDir, "rocket-intro-narration.mp3");
-    const introAudio = await synthesizeSpeech(INTRO_NARRATION, "en", "11-14");
+    const introAudio = await synthesizeSpeech(INTRO_NARRATION, "en", "11-14", 1.1);
     if (!introAudio?.length) throw new Error("Text-to-Speech returned no intro narration.");
     await fs.writeFile(introAudioPath, introAudio);
     await normalizeIntro(SOURCE_VIDEO, introPath, introAudioPath);
@@ -190,7 +190,7 @@ export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
     await emit(`Generating visual for chapter ${i + 1} of ${CHAPTERS.length}: ${chapter.title}`, 8 + i * 10);
     const image = await makeImage(chapter, i, sessionDir);
     await emit(`Narrating chapter ${i + 1} of ${CHAPTERS.length}…`, 12 + i * 10);
-    const audio = await synthesizeSpeech(chapter.narration, "en", "11-14");
+    const audio = await synthesizeSpeech(chapter.narration, "en", "11-14", 1.15);
     if (!audio?.length) throw new Error("Text-to-Speech returned no audio. Check Google Cloud Text-to-Speech access.");
     const audioPath = path.join(sessionDir, `chapter-${i + 1}.mp3`);
     await fs.writeFile(audioPath, audio);
