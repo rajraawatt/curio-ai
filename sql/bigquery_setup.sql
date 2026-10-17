@@ -33,10 +33,8 @@ SELECT
   event_date,
   COUNT(DISTINCT session_id) AS active_sessions,
   COUNTIF(event_type = 'lesson_started') AS lessons_started,
-  COUNTIF(event_type = 'lesson_completed') AS lessons_completed,
   COUNTIF(event_type = 'question_asked') AS questions_asked,
   COUNTIF(event_type = 'moment_selected') AS moments_explored,
-  SAFE_DIVIDE(COUNTIF(event_type = 'lesson_completed'), COUNTIF(event_type = 'lesson_started')) AS completion_rate,
   SUM(COALESCE(estimated_ai_cost_usd, 0)) AS estimated_ai_cost_usd
 FROM `YOUR_PROJECT_ID.curio_analytics.product_events`
 GROUP BY event_date;
