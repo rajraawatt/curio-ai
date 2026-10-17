@@ -112,17 +112,19 @@ async function mediaDurationSeconds(filePath) {
   });
 }
 
-async function makeImage(chapter, index, sessionDir) {
+async function makeImage(chapter, index, sessionDir, emit) {
   // Reuse visuals already generated during an interrupted run, so retries do not
   // spend image quota again for completed chapters.
   for (const ext of ["png", "jpg"]) {
     const cachedPath = path.join(sessionDir, `chapter-${index + 1}.${ext}`);
     const cached = await fs.access(cachedPath).then(() => true).catch(() => false);
     if (cached) {
+      await emit?.("Cache hit: reusing chapter " + (index + 1) + " image — no image API call", null);
       return { imagePath: cachedPath, url: `/generated/studio/rocket-five-minute/chapter-${index + 1}.${ext}` };
     }
   }
 
+  await emit?.("API call: generating chapter " + (index + 1) + " image with " + (process.env.IMAGEN_MODEL || "gemini-2.5-flash-image"), null);
   const dataUrl = await generateDiagram(
     `${chapter.visual} Lesson topic: rocket launch mechanics. Chapter focus: ${chapter.title}. Wide 16:9, photorealistic, no words, no labels, no watermark.`,
     {
@@ -160,7 +162,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
     try {
       const cachedResult = JSON.parse(await fs.readFile(metadataPath, "utf8"));
       if (cachedResult?.video?.chapterMode === true && cachedResult?.video?.url && Array.isArray(cachedResult?.moments) && cachedResult.moments.every((moment) => moment.videoUrl && moment.durationSeconds > 0)) {
-        await onProgress?.({ notice: "Using your saved five-minute lesson — no generation APIs called", progress: 100 });
+        await onProgress?.({ notice: "Cache hit: complete lesson found — no generation APIs called", progress: 100 });
         return cachedResult;
       }
     } catch {
@@ -184,17 +186,19 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
     const chapter = CHAPTERS[i];
     const number = i + 1;
     await emit("Preparing the visual for chapter " + number + " of " + CHAPTERS.length + "…", 3 + i * 10);
-    const image = await makeImage(chapter, i, sessionDir);
+    const image = await makeImage(chapter, i, sessionDir, emit);
     const audioPath = path.join(sessionDir, "chapter-" + number + ".mp3");
     if (!(await fileExistsWithContent(audioPath))) {
-      await emit("Narrating chapter " + number + " of " + CHAPTERS.length + "…", 5 + i * 10);
+      await emit("API call: generating chapter " + number + " narration with Google Cloud Text-to-Speech", 5 + i * 10);
       const audio = await synthesizeSpeech(chapter.narration, "en", "11-14", 1.08);
       if (!audio?.length) throw new Error("Text-to-Speech returned no audio. Check Google Cloud Text-to-Speech access.");
       await fs.writeFile(audioPath, audio);
+    } else {
+      await emit("Cache hit: reusing chapter " + number + " narration audio — no TTS API call", null);
     }
     const motionPath = path.join(videoDir, "chapter-" + number + "-veo-motion.mp4");
     if (!(await fileExistsWithContent(motionPath, 100_000))) {
-      await emit("Generating moving video with Veo for chapter " + number + " of " + CHAPTERS.length + ": " + chapter.title, 8 + i * 10);
+      await emit("API call: generating chapter " + number + " motion with " + (process.env.VEO_MODEL || "veo-3.1-fast-generate-001") + " — this can take a few minutes", 8 + i * 10);
       const imageBytes = await fs.readFile(image.imagePath);
       const mimeType = image.imagePath.endsWith(".jpg") ? "image/jpeg" : "image/png";
       await generateVeoClipFromImage({
@@ -202,14 +206,18 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
         imageBase64: imageBytes.toString("base64"), mimeType, destPath: motionPath, durationSeconds: 8, aspectRatio: "16:9", generateAudio: false
       });
       if (!(await fileExistsWithContent(motionPath, 100_000))) throw new Error("Veo did not produce a usable video for chapter " + number + ".");
+    } else {
+      await emit("Cache hit: reusing chapter " + number + " Veo motion video — no video generation API call", null);
     }
     const clipPath = path.join(videoDir, "chapter-" + number + "-narrated.mp4");
     if (!(await fileExistsWithContent(clipPath, 100_000))) {
-      await emit("Combining motion footage and narration for chapter " + number + "…", 12 + i * 10);
+      await emit("Local processing: FFmpeg is combining chapter " + number + " motion and narration (no generation API)", 12 + i * 10);
       await runFfmpeg(["-y", "-stream_loop", "-1", "-i", motionPath, "-i", audioPath, "-filter_complex",
         "[0:v]scale=" + WIDTH + ":" + HEIGHT + ":force_original_aspect_ratio=increase,crop=" + WIDTH + ":" + HEIGHT + ",fps=" + FPS + ",setsar=1,format=yuv420p[v];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a]",
         "-map", "[v]", "-map", "[a]", "-shortest", "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", clipPath]);
+    } else {
+      await emit("Cache hit: reusing completed chapter " + number + " video — no generation API call", null);
     }
     const durationSeconds = await mediaDurationSeconds(clipPath);
     const startSeconds = timelineSeconds;
