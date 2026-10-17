@@ -21,14 +21,35 @@ gcloud services enable \
   storage.googleapis.com \
   --project "$PROJECT"
 
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
+SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+BUCKET="${GCS_BUCKET:-curio-assets-${PROJECT}}"
+
+# Keep generated lesson media in durable Cloud Storage, not the container filesystem.
+if ! gcloud storage buckets describe "gs://${BUCKET}" --project "$PROJECT" >/dev/null 2>&1; then
+  gcloud storage buckets create "gs://${BUCKET}" \
+    --project "$PROJECT" \
+    --location "$REGION" \
+    --uniform-bucket-level-access
+fi
+
+# Cloud Run uses the Compute Engine default service account unless configured otherwise.
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${SERVICE_ACCOUNT}" \
+  --role="roles/aiplatform.user"
+
+gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
+  --member="serviceAccount:${SERVICE_ACCOUNT}" \
+  --role="roles/storage.objectAdmin"
+
 gcloud run deploy curio \
   --source . \
   --project "$PROJECT" \
   --region "$REGION" \
   --allow-unauthenticated \
-  --memory 1Gi \
-  --cpu 1 \
-  --timeout 300 \
-  --min-instances 1 \
+  --memory 4Gi \
+  --cpu 2 \
+  --timeout 3600 \
+  --min-instances 0 \
   --max-instances 1 \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT},GOOGLE_CLOUD_LOCATION=${REGION},GEMINI_MODEL=gemini-2.5-flash"
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT},GOOGLE_CLOUD_LOCATION=${REGION},GEMINI_MODEL=gemini-2.5-flash,GCS_BUCKET=${BUCKET}"
