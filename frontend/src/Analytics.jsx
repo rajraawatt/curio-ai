@@ -28,17 +28,33 @@ function BarList({ items, labelKey, valueKey, color = "from-violet-500 to-fuchsi
 function TrendChart({ data }) {
   if (!data?.length) return <Empty>No daily activity yet. Events will appear here after the first sessions.</Empty>;
   const max = Math.max(1, ...data.flatMap((item) => [Number(item.lessons_started || 0), Number(item.questions_asked || 0), Number(item.moments_explored || 0)]));
-  const width = 620, height = 210, padX = 26, padY = 18;
+  const width = 720, height = 240, padX = 34, padY = 22;
   const x = (i) => padX + (data.length <= 1 ? (width - 2 * padX) / 2 : i * (width - 2 * padX) / (data.length - 1));
   const y = (value) => height - padY - (Number(value || 0) / max) * (height - padY * 2);
   const line = (key) => data.map((item, i) => `${i ? "L" : "M"} ${x(i)} ${y(item[key])}`).join(" ");
-  return <div className="w-full overflow-x-auto"><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Daily lesson starts, questions and moment selections" className="h-52 min-w-[480px] w-full overflow-visible">
-    {[0, .25, .5, .75, 1].map((step) => <line key={step} x1={padX} x2={width - padX} y1={y(max * step)} y2={y(max * step)} stroke="rgba(255,255,255,.09)" strokeDasharray="3 5" />)}
-    <path d={line("lessons_started")} fill="none" stroke="#a78bfa" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-    <path d={line("questions_asked")} fill="none" stroke="#f0abfc" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-    <path d={line("moments_explored")} fill="none" stroke="#67e8f9" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-    {data.map((item, i) => <text key={item.date} x={x(i)} y={height - 1} fill="rgba(255,255,255,.42)" fontSize="9" textAnchor="middle">{String(item.date).slice(5)}</text>)}
-  </svg><div className="mt-2 flex flex-wrap gap-4 text-xs text-white/60"><span className="flex items-center gap-2"><i className="h-2 w-2 rounded-full bg-violet-300" />Lesson starts</span><span className="flex items-center gap-2"><i className="h-2 w-2 rounded-full bg-fuchsia-300" />Questions</span><span className="flex items-center gap-2"><i className="h-2 w-2 rounded-full bg-cyan-300" />Moments explored</span></div></div>;
+  const area = (key) => `${line(key)} L ${x(data.length - 1)} ${height - padY} L ${x(0)} ${height - padY} Z`;
+  return <div className="w-full">
+    <div className="mb-4 flex flex-wrap gap-2 text-xs">{[["Lessons started", "#a78bfa"], ["Questions asked", "#f0abfc"], ["Moments explored", "#67e8f9"]].map(([label, color]) => <span key={label} className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[.035] px-3 py-1.5 text-white/65"><i className="h-2 w-2 rounded-full" style={{ background: color, boxShadow: `0 0 10px ${color}` }} />{label}</span>)}</div>
+    <div className="overflow-x-auto rounded-xl bg-gradient-to-b from-violet-400/[.045] to-transparent"><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Daily lesson starts, questions and moment selections" className="h-60 min-w-[520px] w-full">
+      <defs><linearGradient id="lesson-area" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#a78bfa" stopOpacity=".22" /><stop offset="100%" stopColor="#a78bfa" stopOpacity="0" /></linearGradient><linearGradient id="question-area" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#f0abfc" stopOpacity=".16" /><stop offset="100%" stopColor="#f0abfc" stopOpacity="0" /></linearGradient></defs>
+      {[0, .25, .5, .75, 1].map((step) => <g key={step}><line x1={padX} x2={width - padX} y1={y(max * step)} y2={y(max * step)} stroke="rgba(255,255,255,.08)" strokeDasharray="4 6" /><text x="3" y={y(max * step) + 3} fill="rgba(255,255,255,.3)" fontSize="10">{Math.round(max * step)}</text></g>)}
+      <path d={area("lessons_started")} fill="url(#lesson-area)" /><path d={area("questions_asked")} fill="url(#question-area)" />
+      <path d={line("lessons_started")} fill="none" stroke="#a78bfa" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /><path d={line("questions_asked")} fill="none" stroke="#f0abfc" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /><path d={line("moments_explored")} fill="none" stroke="#67e8f9" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="5 4" />
+      {data.map((item, i) => <g key={item.date}><circle cx={x(i)} cy={y(item.questions_asked)} r="4" fill="#f0abfc" stroke="#17131f" strokeWidth="2"><title>{item.date}: {number(item.questions_asked)} questions</title></circle><text x={x(i)} y={height - 3} fill="rgba(255,255,255,.42)" fontSize="10" textAnchor="middle">{String(item.date).slice(5)}</text></g>)}
+    </svg></div>
+  </div>;
+}
+
+function JourneyFlow({ kpis }) {
+  const steps = [{ label: "Lesson starts", value: Number(kpis.lessons_started || 0), color: "#a78bfa", icon: BookOpen }, { label: "Moments explored", value: Number(kpis.moments_explored || 0), color: "#67e8f9", icon: Activity }, { label: "Questions asked", value: Number(kpis.questions_asked || 0), color: "#f0abfc", icon: MessageCircle }];
+  const max = Math.max(1, ...steps.map((step) => step.value));
+  return <div className="grid gap-3 sm:grid-cols-3">{steps.map((step, index) => { const Icon = step.icon; return <div key={step.label} className="relative overflow-hidden rounded-xl border border-white/10 bg-white/[.025] p-4"><div className="flex items-center justify-between"><span className="text-xs text-white/55">{step.label}</span><Icon size={16} style={{ color: step.color }} /></div><div className="mt-3 flex items-end justify-between"><strong className="text-3xl tracking-tight">{number(step.value)}</strong><span className="text-xs text-white/35">{index === 0 ? "Entry point" : `${Math.round(step.value / max * 100)}% of peak`}</span></div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full" style={{ width: `${step.value / max * 100}%`, background: step.color, boxShadow: `0 0 12px ${step.color}55` }} /></div></div>; })}</div>;
+}
+
+function ChapterHotspots({ items }) {
+  if (!items?.length) return <Empty>No chapter activity yet.</Empty>;
+  const max = Math.max(1, ...items.map((item) => Number(item.questions || 0) + Number(item.selections || 0)));
+  return <div className="grid gap-3">{items.map((item, index) => { const score = Number(item.questions || 0) + Number(item.selections || 0); return <div key={item.chapter_id || item.chapter_title} className="rounded-xl border border-white/[.07] bg-white/[.025] p-3"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-cyan-300/10 text-xs font-bold text-cyan-200">{String(index + 1).padStart(2, "0")}</span><div className="min-w-0"><p className="m-0 truncate text-sm font-semibold">{item.chapter_title || "Untitled chapter"}</p><p className="m-0 mt-0.5 text-xs text-white/35">{number(item.selections)} moments · {number(item.questions)} questions</p></div></div><span className="text-sm font-bold tabular-nums">{number(score)}</span></div><div className="ml-11 mt-3 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-400" style={{ width: `${score / max * 100}%`, boxShadow: "0 0 14px rgba(103,232,249,.16)" }} /></div></div>; })}</div>;
 }
 
 export function Analytics() {
