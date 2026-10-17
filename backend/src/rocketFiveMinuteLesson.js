@@ -3,12 +3,11 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import ffmpegPath from "ffmpeg-static";
-import { generateDiagram, synthesizeSpeech } from "./gcp.js";
+import { generateDiagram, generateVeoClipFromImage, synthesizeSpeech } from "./gcp.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GENERATED_ROOT = path.join(__dirname, "../../frontend/public/generated");
 const SOURCE_VIDEO = path.join(GENERATED_ROOT, "studio/1791914535838/video/lesson-1791914535838.mp4");
-const TARGET_SECONDS = 300;
 const INTRO_SECONDS = 16;
 const WIDTH = 1280;
 const HEIGHT = 720;
@@ -102,6 +101,20 @@ async function fileExistsWithContent(filePath, minBytes = 1024) {
   }
 }
 
+async function mediaDurationSeconds(filePath) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath, ["-i", filePath, "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      const match = stderr.match(/Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)/);
+      if (code !== 0 || !match) return reject(new Error("Could not read media duration for " + path.basename(filePath)));
+      resolve(Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]));
+    });
+  });
+}
+
 async function makeImage(chapter, index, sessionDir) {
   // Reuse visuals already generated during an interrupted run, so retries do not
   // spend image quota again for completed chapters.
@@ -174,7 +187,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
   if (cachedFinalIsUsable) {
     try {
       const cachedResult = JSON.parse(await fs.readFile(metadataPath, "utf8"));
-      if (cachedResult?.video?.url && Array.isArray(cachedResult?.moments) && Array.isArray(cachedResult?.video?.chapters)) {
+      if (cachedResult?.video?.chapterMode === true && cachedResult?.video?.url && Array.isArray(cachedResult?.moments) && cachedResult.moments.every((moment) => moment.videoUrl && moment.durationSeconds > 0)) {
         await onProgress?.({ notice: "Using your saved five-minute lesson — no generation APIs called", progress: 100 });
         return cachedResult;
       }
@@ -182,12 +195,10 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
       // Older or incomplete cache: rebuild once, reusing any existing image/audio assets below.
     }
   }
-  const sourceExists = await fs.access(SOURCE_VIDEO).then(() => true).catch(() => false);
-  const introSeconds = sourceExists ? INTRO_SECONDS : 0;
-  const chapterSeconds = (TARGET_SECONDS - introSeconds) / CHAPTERS.length;
   const clips = [];
   const moments = [];
   const chapters = [];
+  let timelineSeconds = 0;
 
   const emit = async (notice, progress) => {
     if (onProgress) await onProgress({ notice, progress });
@@ -197,121 +208,64 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
     throw new Error("A Google Cloud project is required for narrated Studio lessons. Set GOOGLE_CLOUD_PROJECT and run gcloud auth application-default login.");
   }
 
-  if (sourceExists) {
-    await emit("Preparing the existing Rocket Launch Mechanics footage…", 4);
-    const introPath = path.join(videoDir, "rocket-intro-normalized.mp4");
-    const introAudioPath = path.join(sessionDir, "rocket-intro-narration.mp3");
-    let introAudio;
-    if (await fileExistsWithContent(introAudioPath)) {
-      introAudio = await fs.readFile(introAudioPath);
-    } else {
-      introAudio = await synthesizeSpeech(INTRO_NARRATION, "en", "11-14", 1.1);
-      if (!introAudio?.length) throw new Error("Text-to-Speech returned no intro narration.");
-      await fs.writeFile(introAudioPath, introAudio);
-    }
-    await normalizeIntro(SOURCE_VIDEO, introPath, introAudioPath);
-    clips.push(introPath);
-    moments.push({
-      id: "original-rocket-footage",
-      title: "Original launch footage",
-      summary: "Start with the saved Rocket Launch Mechanics video.",
-      caption: "We will trace how a rocket leaves Earth.",
-      seekSec: 0,
-      points: [INTRO_NARRATION],
-      labels: [],
-      images: [{ id: "wide", kind: "wide", url: "/generated/studio/1791914535838/moment-1-image-detail.png", error: null, positions: {} }],
-      narration: INTRO_NARRATION,
-      durationSeconds: INTRO_SECONDS
-    });
-    chapters.push({
-      id: "original-rocket-footage",
-      title: "Original launch footage",
-      startSeconds: 0,
-      endSeconds: INTRO_SECONDS,
-      concepts: ["The launch is the starting point for the lesson"]
-    });
-  }
-
   for (let i = 0; i < CHAPTERS.length; i += 1) {
     const chapter = CHAPTERS[i];
-    await emit(`Generating visual for chapter ${i + 1} of ${CHAPTERS.length}: ${chapter.title}`, 8 + i * 10);
+    const number = i + 1;
     const image = await makeImage(chapter, i, sessionDir);
-    await emit(`Narrating chapter ${i + 1} of ${CHAPTERS.length}…`, 12 + i * 10);
-    const audioPath = path.join(sessionDir, `chapter-${i + 1}.mp3`);
+    const audioPath = path.join(sessionDir, "chapter-" + number + ".mp3");
     if (!(await fileExistsWithContent(audioPath))) {
-      const audio = await synthesizeSpeech(chapter.narration, "en", "11-14", 1.2);
+      await emit("Narrating chapter " + number + " of " + CHAPTERS.length + "…", 5 + i * 10);
+      const audio = await synthesizeSpeech(chapter.narration, "en", "11-14", 1.08);
       if (!audio?.length) throw new Error("Text-to-Speech returned no audio. Check Google Cloud Text-to-Speech access.");
       await fs.writeFile(audioPath, audio);
     }
-    const clipPath = path.join(videoDir, `chapter-${i + 1}.mp4`);
-    if (!(await fileExistsWithContent(clipPath, 100_000))) {
-      await renderChapter(image.imagePath, audioPath, clipPath, chapterSeconds);
+    const motionPath = path.join(videoDir, "chapter-" + number + "-veo-motion.mp4");
+    if (!(await fileExistsWithContent(motionPath, 100_000))) {
+      await emit("Generating moving video with Veo for chapter " + number + " of " + CHAPTERS.length + ": " + chapter.title, 8 + i * 10);
+      const imageBytes = await fs.readFile(image.imagePath);
+      const mimeType = image.imagePath.endsWith(".jpg") ? "image/jpeg" : "image/png";
+      await generateVeoClipFromImage({
+        prompt: "Create an educational aerospace documentary shot with continuous realistic motion. Topic: rocket launch mechanics. Scene: " + chapter.visual + " Chapter focus: " + chapter.title + ". Camera movement should be smooth and physically plausible. Keep the subject visible, no text, no labels, no logos, no watermark. The clip will be used as moving footage underneath a separate voice-over narration.",
+        imageBase64: imageBytes.toString("base64"), mimeType, destPath: motionPath, durationSeconds: 8, aspectRatio: "16:9", generateAudio: false
+      });
+      if (!(await fileExistsWithContent(motionPath, 100_000))) throw new Error("Veo did not produce a usable video for chapter " + number + ".");
     }
+    const clipPath = path.join(videoDir, "chapter-" + number + "-narrated.mp4");
+    if (!(await fileExistsWithContent(clipPath, 100_000))) {
+      await emit("Combining motion footage and narration for chapter " + number + "…", 12 + i * 10);
+      await runFfmpeg(["-y", "-stream_loop", "-1", "-i", motionPath, "-i", audioPath, "-filter_complex",
+        "[0:v]scale=" + WIDTH + ":" + HEIGHT + ":force_original_aspect_ratio=increase,crop=" + WIDTH + ":" + HEIGHT + ",fps=" + FPS + ",setsar=1,format=yuv420p[v];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a]",
+        "-map", "[v]", "-map", "[a]", "-shortest", "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", clipPath]);
+    }
+    const durationSeconds = await mediaDurationSeconds(clipPath);
+    const startSeconds = timelineSeconds;
+    const endSeconds = startSeconds + durationSeconds;
+    timelineSeconds = endSeconds;
     clips.push(clipPath);
-    const startSeconds = introSeconds + i * chapterSeconds;
-    const moment = {
-      id: chapter.id,
-      title: chapter.title,
-      summary: chapter.caption,
-      caption: chapter.caption,
-      seekSec: startSeconds,
-      points: [chapter.caption, chapter.narration.slice(0, 150)],
-      labels: [],
-      images: [{ id: "wide", kind: "wide", url: image.url, error: null, positions: {} }],
-      narration: chapter.narration,
-      durationSeconds: chapterSeconds
-    };
+    const moment = { id: chapter.id, title: chapter.title, summary: chapter.caption, caption: chapter.caption, seekSec: startSeconds,
+      points: [chapter.caption, chapter.narration.slice(0, 150)], labels: [],
+      images: [{ id: "wide", kind: "wide", url: image.url, error: null, positions: {} }], narration: chapter.narration,
+      videoUrl: "/generated/studio/rocket-five-minute/video/chapter-" + number + "-narrated.mp4", posterUrl: image.url, durationSeconds };
     moments.push(moment);
-    chapters.push({
-      id: chapter.id,
-      title: chapter.title,
-      startSeconds,
-      endSeconds: startSeconds + chapterSeconds,
-      concepts: [chapter.caption]
-    });
+    chapters.push({ id: chapter.id, title: chapter.title, startSeconds, endSeconds, durationSeconds, videoUrl: moment.videoUrl, concepts: [chapter.caption] });
   }
-
-  await emit("Assembling the narrated five-minute lesson…", 92);
+  await emit("Assembling the combined lesson for download…", 94);
   const listPath = path.join(videoDir, "rocket-five-minute-concat.txt");
-  const list = clips.map((file) => `file '${file.replace(/'/g, "'\\''")}'`).join("\n");
+  const list = clips.map((file) => "file '" + file.replace(/'/g, "'\\''") + "'").join("\n");
   await fs.writeFile(listPath, list, "utf8");
   const tmpPath = path.join(videoDir, ".rocket-five-minute.tmp.mp4");
   try {
-    // Re-encode the joined streams into one browser-friendly H.264/AAC MP4.
-    // Stream-copy concatenation can preserve incompatible timestamps/stream metadata
-    // from independently rendered clips and produce a file browsers refuse to play.
-    await runFfmpeg([
-      "-y", "-f", "concat", "-safe", "0", "-i", listPath,
-      "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-      "-pix_fmt", "yuv420p", "-r", String(FPS),
-      "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
-      "-movflags", "+faststart", tmpPath
-    ]);
-    if (!(await fileExistsWithContent(tmpPath, 100_000))) {
-      throw new Error("FFmpeg created an empty or incomplete lesson video.");
-    }
+    await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", String(FPS), "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", tmpPath]);
+    if (!(await fileExistsWithContent(tmpPath, 100_000))) throw new Error("FFmpeg created an empty combined lesson video.");
     await fs.rename(tmpPath, finalPath);
-  } catch (err) {
-    await fs.unlink(tmpPath).catch(() => {});
-    throw err;
-  } finally {
-    await fs.unlink(listPath).catch(() => {});
-  }
-
+  } catch (err) { await fs.unlink(tmpPath).catch(() => {}); throw err; }
+  finally { await fs.unlink(listPath).catch(() => {}); }
   await runFfmpeg(["-y", "-ss", "2", "-i", finalPath, "-frames:v", "1", "-update", "1", "-q:v", "3", posterPath]).catch(() => {});
-  const video = {
-    id: "studio-lesson-five-minute",
-    merged: true,
-    isFiveMinute: true,
-    title: "Rocket Launch Mechanics — 5-minute lesson",
-    url: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute.mp4",
-    posterUrl: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute-poster.jpg",
-    durationSeconds: TARGET_SECONDS,
-    chapters,
-    captions: []
-  };
-  await emit("Five-minute lesson ready", 100);
-  const result = { video, moments, introSeconds };
+  const video = { id: "studio-lesson-five-minute", merged: true, chapterMode: true, title: "Rocket Launch Mechanics — narrated video lesson",
+    url: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute.mp4", posterUrl: moments[0]?.posterUrl || null, durationSeconds: timelineSeconds, chapters, captions: [] };
+  await emit("Lesson ready", 100);
+  const result = { video, moments };
   await fs.writeFile(metadataPath, JSON.stringify(result, null, 2), "utf8");
   return result;
 }
