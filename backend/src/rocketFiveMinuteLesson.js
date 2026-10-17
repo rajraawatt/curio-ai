@@ -94,6 +94,16 @@ function parseDataUrl(dataUrl) {
 }
 
 async function makeImage(chapter, index, sessionDir) {
+  // Reuse visuals already generated during an interrupted run, so retries do not
+  // spend image quota again for completed chapters.
+  for (const ext of ["png", "jpg"]) {
+    const cachedPath = path.join(sessionDir, `chapter-${index + 1}.${ext}`);
+    const cached = await fs.access(cachedPath).then(() => true).catch(() => false);
+    if (cached) {
+      return { imagePath: cachedPath, url: `/generated/studio/rocket-five-minute/chapter-${index + 1}.${ext}` };
+    }
+  }
+
   const dataUrl = await generateDiagram(
     `${chapter.visual} Lesson topic: rocket launch mechanics. Chapter focus: ${chapter.title}. Wide 16:9, photorealistic, no words, no labels, no watermark.`,
     {
