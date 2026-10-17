@@ -319,6 +319,7 @@ export function Studio({ mockId = "" }) {
   function applyMoment(index, seek) {
     const next = session?.moments?.[index];
     if (!next) return;
+    trackAnalytics("moment_selected", { lessonId: session?.id, lessonTitle: session?.topic, chapterId: next.id || `chapter-${index + 1}`, chapterTitle: next.title, videoTimestampSec: next.seekSec ?? index * 8 });
     setMomentIndex(index);
     setImageIndex(0);
     setZoom(1);
@@ -424,6 +425,7 @@ export function Studio({ mockId = "" }) {
     setQuestion("");
     setMessages((prev) => [...prev, { role: "user", text: ask }]);
     setTutorBusy(true);
+    trackAnalytics("question_asked", { lessonId: session?.id, lessonTitle: session?.topic, chapterId: moment?.id, chapterTitle: moment?.title, videoTimestampSec: moment?.seekSec ?? momentIndex * 8, questionCategory: "contextual_question" });
     try {
       const res = await fetch("/api/model-tutor", {
         method: "POST",
@@ -441,7 +443,8 @@ export function Studio({ mockId = "" }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Tutor failed");
-      setMessages((prev) => [...prev, { role: "assistant", text: data.answer, followUp: data.followUp }]);\n      trackAnalytics("answer_generated", { lessonId: session?.id, lessonTitle: session?.topic, chapterId: moment?.id, chapterTitle: moment?.title, videoTimestampSec: moment?.seekSec ?? momentIndex * 8, answerStatus: data.source || "generated" });
+      setMessages((prev) => [...prev, { role: "assistant", text: data.answer, followUp: data.followUp }]);
+      trackAnalytics("answer_generated", { lessonId: session?.id, lessonTitle: session?.topic, chapterId: moment?.id, chapterTitle: moment?.title, videoTimestampSec: moment?.seekSec ?? momentIndex * 8, answerStatus: data.source || "generated" });
     } catch (err) {
       setMessages((prev) => [...prev, { role: "assistant", text: err.message }]);
     } finally {
@@ -742,6 +745,7 @@ export function Studio({ mockId = "" }) {
                   <Share2 size={13} /> {linkCopied ? "Copied" : "Share"}
                 </button>
                 <button type="button" disabled={busy} className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[#7C3AED] to-[#a855f7] px-5 py-2.5 text-sm font-semibold shadow-[0_8px_24px_rgba(124,58,237,0.4)] disabled:opacity-45" onClick={() => {
+                  trackAnalytics("lesson_started", { lessonId: session?.id, lessonTitle: session?.topic });
                   setLearningStarted(true);
                   if (hasLessonAssets(session)) {
                     setHistory((prev) => {
