@@ -562,7 +562,7 @@ export function Studio({ mockId = "" }) {
   useEffect(() => {
     if (mock || window.location.pathname !== "/studio/watch") return;
     setWatchMode(true);
-    setSession((current) => current || savedRocketSession());
+    // Do not seed a watch route with a hardcoded Rocket lesson.
   }, [mock]);
 
   useEffect(() => {
@@ -633,21 +633,6 @@ export function Studio({ mockId = "" }) {
     const text = String(textOverride || prompt).trim();
     if (textOverride) setPrompt(textOverride);
     if (!text || busy || mock) return;
-    if (/rocket/i.test(text)) {
-      const sameTopic = (value) => String(value || "").trim().toLowerCase() === text.toLowerCase();
-      const cachedLesson = (session?.video?.chapterMode && sameTopic(session.topic) ? session : null)
-        || history.find((item) => item?.video?.chapterMode && sameTopic(item.topic));
-      if (cachedLesson) {
-        setSession(cachedLesson);
-        setMomentIndex(0);
-        setImageIndex(0);
-        setPlaying(true);
-        setNotice("Reusing your saved lesson — no generation API request made.");
-        setGenerationLogs([{ time: new Date().toLocaleTimeString(), message: "Cache hit: reused the completed lesson from this browser session. No generation request made." }]);
-        setError("");
-        return;
-      }
-    }
     setLearningStarted(true);
     setWatchMode(true);
     if (window.location.pathname !== "/studio/watch") {
@@ -669,77 +654,6 @@ export function Studio({ mockId = "" }) {
     setZoom(1);
     setCropping(false);
     setMessages([]);
-    if (/rocket/i.test(text)) {
-      try {
-        const res = await fetch("/api/studio/rocket-five-minute", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-          body: JSON.stringify({ topic: text, forceRegenerate: true }),
-        });
-        if (!res.ok || !res.body) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || `Lesson generation failed (${res.status})`);
-        }
-        let result = null;
-        let streamError = "";
-        await readStudioStream(res, (eventName, data) => {
-          if (eventName === "status") {
-            if (data.notice) {
-              setNotice(data.notice);
-              setGenerationLogs((items) => [...items, { time: new Date().toLocaleTimeString(), message: data.notice }].slice(-35));
-            }
-            if (data.progress != null) setProgress(Math.max(0, Math.min(100, Math.round(data.progress))));
-          }
-          if (eventName === "chapter" && data.result?.video && Array.isArray(data.result.moments)) {
-            const saved = savedRocketSession();
-            setSession({
-              ...saved,
-              id: "rocket-five-minute",
-              topic: text,
-              prompt: text,
-              subtitle: "A narrated lesson with chapters arriving as they finish.",
-              video: data.result.video,
-              moments: data.result.moments,
-            });
-            if (!partialLessonStartedRef.current) {
-              partialLessonStartedRef.current = true;
-              setMomentIndex(0);
-              setImageIndex(0);
-              setFocus(null);
-              setPlaying(false);
-              setNotice("Chapter 1 is ready — play it while the remaining chapters generate.");
-            } else {
-              setNotice(`Chapter ${data.result.moments.length} is ready — you can watch it now.`);
-            }
-          }
-          if (eventName === "done" && data.result) result = data.result;
-          if (eventName === "error") streamError = data.error || "Lesson generation failed";
-        });
-        if (streamError) throw new Error(streamError);
-        if (!result?.video || !Array.isArray(result.moments)) {
-          throw new Error("The server finished without returning a lesson video.");
-        }
-        const saved = savedRocketSession();
-        setSession({
-          ...saved,
-          id: "rocket-five-minute",
-          topic: text,
-          prompt: text,
-          subtitle: "A narrated lesson with clickable chapters.",
-          video: result.video,
-          moments: result.moments,
-        });
-        setMomentIndex(0);
-        setImageIndex(0);
-        setFocus(null);
-        setNotice("Lesson ready");
-      } catch (err) {
-        setError(err.message || "Could not generate the lesson");
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
     try {
       const res = await fetch("/api/studio/generate", {
         method: "POST",
@@ -761,11 +675,8 @@ export function Studio({ mockId = "" }) {
         if (eventName === "error") setError(data.error || "Studio failed");
       });
     } catch (err) {
-      const saved = savedRocketSession();
-      setSession(saved);
-      setFocus(saved.moments[0].labels[0]);
-      setError("");
-      setNotice("");
+      setSession(null);
+      setError(err.message || "Could not generate a topic-specific lesson");
     } finally {
       setBusy(false);
     }
