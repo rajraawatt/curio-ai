@@ -1047,7 +1047,7 @@ export function Studio({ mockId = "" }) {
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate text-xs font-black">{item.title}</span>
-                        <span className="block text-[0.65rem] font-bold text-white/40">{clock(item.seekSec)} – {clock(session?.moments?.[index + 1]?.seekSec ?? ((item.seekSec || 0) + (item.durationSeconds || 8)))}</span>
+                        <span className="block text-[0.65rem] font-bold text-white/40">0:00 – {clock(item.durationSeconds || 8)}</span>
                       </span>
                     </li>
                   );
