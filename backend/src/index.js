@@ -280,7 +280,7 @@ app.post("/api/studio/rocket-five-minute", async (_req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders?.();
-  const send = (event, data) => res.write(`event: ${event}\\ndata: ${JSON.stringify(data)}\\n\\n`);
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   try {
     send("status", { notice: "Starting the five-minute Rocket Launch Mechanics lesson", progress: 1 });
     const result = await buildRocketFiveMinuteLesson({
