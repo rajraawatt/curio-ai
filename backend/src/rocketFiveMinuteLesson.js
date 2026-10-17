@@ -198,7 +198,7 @@ export function buildRocketFiveMinuteLesson(options = {}) {
   return activeBuildPromise;
 }
 
-async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
+async function buildRocketFiveMinuteLessonOnce({ onProgress, forceRegenerate = false } = {}) {
   const sessionDir = path.join(GENERATED_ROOT, "studio", "rocket-five-minute");
   const videoDir = path.join(sessionDir, "video");
   await fs.mkdir(videoDir, { recursive: true });
@@ -206,7 +206,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
   const posterPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute-v3-poster.jpg");
   const metadataPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute.json");
   const cachedFinalIsUsable = await fileExistsWithContent(finalPath, 100_000);
-  if (cachedFinalIsUsable) {
+  if (cachedFinalIsUsable && !forceRegenerate) {
     try {
       const cachedResult = JSON.parse(await fs.readFile(metadataPath, "utf8"));
       if (cachedResult?.video?.chapterMode === true && cachedResult?.video?.generationRevision === 2 && cachedResult?.video?.url && Array.isArray(cachedResult?.moments) && cachedResult.moments.every((moment) => moment.videoUrl && moment.durationSeconds > 0)) {
@@ -251,7 +251,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
     for (let shotIndex = 0; shotIndex < shotCount; shotIndex += 1) {
       const shotNumber = shotIndex + 1;
       const motionShotPath = path.join(videoDir, "chapter-" + number + "-shot-" + shotNumber + "-v3.mp4");
-      if (!(await fileExistsWithContent(motionShotPath, 100_000))) {
+      if (forceRegenerate || !(await fileExistsWithContent(motionShotPath, 100_000))) {
         await emit("API call: generating unique video shot " + shotNumber + " of " + shotCount + " for chapter " + number + " — visuals are aligned to this narration segment", 8 + i * 9 + Math.round((shotIndex / shotCount) * 7));
         const imageBytes = await fs.readFile(image.imagePath);
         const mimeType = image.imagePath.endsWith(".jpg") ? "image/jpeg" : "image/png";
@@ -267,12 +267,12 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
       shotPaths.push(motionShotPath);
     }
     const motionPath = path.join(videoDir, "chapter-" + number + "-motion-v3.mp4");
-    if (!(await fileExistsWithContent(motionPath, 100_000)) || (await fs.stat(motionPath)).mtimeMs < Math.max(...(await Promise.all(shotPaths.map((p) => fs.stat(p)))).map((st) => st.mtimeMs))) {
+    if (forceRegenerate || !(await fileExistsWithContent(motionPath, 100_000)) || (await fs.stat(motionPath)).mtimeMs < Math.max(...(await Promise.all(shotPaths.map((p) => fs.stat(p)))).map((st) => st.mtimeMs))) {
       await emit("Local processing: joining " + shotCount + " unique visual shots for chapter " + number, 10 + i * 9);
       await assembleMotionShots(shotPaths, motionPath);
     }
     const clipPath = path.join(videoDir, "chapter-" + number + "-narrated-v3.mp4");
-    if (!(await fileExistsWithContent(clipPath, 100_000)) || (await fs.stat(clipPath)).mtimeMs < Math.max((await fs.stat(motionPath)).mtimeMs, (await fs.stat(audioPath)).mtimeMs)) {
+    if (forceRegenerate || !(await fileExistsWithContent(clipPath, 100_000)) || (await fs.stat(clipPath)).mtimeMs < Math.max((await fs.stat(motionPath)).mtimeMs, (await fs.stat(audioPath)).mtimeMs)) {
       await emit("Local processing: combining the complete chapter visuals with narration (no looping)", 12 + i * 9);
       await runFfmpeg(["-y", "-i", motionPath, "-i", audioPath, "-filter_complex",
         "[0:v]scale=" + WIDTH + ":" + HEIGHT + ":force_original_aspect_ratio=increase,crop=" + WIDTH + ":" + HEIGHT + ",fps=" + FPS + ",setsar=1,format=yuv420p[v];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a]",
