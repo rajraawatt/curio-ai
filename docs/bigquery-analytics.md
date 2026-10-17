@@ -69,7 +69,7 @@
 ## What the dashboard measures
 
 - Active sessions: distinct session IDs with events in the selected period.
-- Lessons started/completed: explicit events emitted by the UI; completion means the user clicked **Start Learning**, not that they finished watching the entire video.
+- Lessons started: explicit event emitted when a user clicks **Start Learning**. Completion and retention are intentionally not reported until the app captures reliable completion/assessment events.
 - Questions asked and moments explored: engagement signals, not validated learning outcomes.
 - Estimated AI cost: reserved field for future token/model cost instrumentation; it remains zero unless real cost estimates are sent. Do not use it as billing truth.
 
