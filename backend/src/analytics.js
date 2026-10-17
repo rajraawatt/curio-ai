@@ -3,7 +3,7 @@ import { BigQuery } from "@google-cloud/bigquery";
 const projectId = () => process.env.GOOGLE_CLOUD_PROJECT || "";
 const datasetId = () => process.env.BIGQUERY_DATASET || "curio_analytics";
 const tableId = () => process.env.BIGQUERY_EVENTS_TABLE || "product_events";
-const location = () => process.env.BIGQUERY_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || "US";
+const location = () => process.env.BIGQUERY_LOCATION || "US";
 const allowedEvents = new Set([
   "page_view", "lesson_started", "lesson_completed", "moment_selected",
   "question_asked", "answer_generated", "answer_feedback_submitted",
@@ -106,11 +106,9 @@ export async function getAnalyticsDashboard({ days = 14 } = {}) {
   const [kpis, trend, eventBreakdown, topLessons, topChapters] = await Promise.all([
     runQuery(`SELECT
       COUNTIF(event_type = 'lesson_started') AS lessons_started,
-      COUNTIF(event_type = 'lesson_completed') AS lessons_completed,
       COUNTIF(event_type = 'question_asked') AS questions_asked,
       COUNTIF(event_type = 'moment_selected') AS moments_explored,
       COUNT(DISTINCT session_id) AS active_sessions,
-      SAFE_DIVIDE(COUNTIF(event_type = 'lesson_completed'), COUNTIF(event_type = 'lesson_started')) AS completion_rate,
       SUM(COALESCE(estimated_ai_cost_usd, 0)) AS estimated_ai_cost_usd
       FROM ${table}
       WHERE event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL @days DAY)`, { days: range }),
@@ -126,7 +124,6 @@ export async function getAnalyticsDashboard({ days = 14 } = {}) {
       GROUP BY event_type ORDER BY total DESC`, { days: range }),
     runQuery(`SELECT lesson_id, ANY_VALUE(lesson_title) AS lesson_title,
       COUNTIF(event_type = 'lesson_started') AS starts,
-      COUNTIF(event_type = 'lesson_completed') AS completions,
       COUNTIF(event_type = 'question_asked') AS questions,
       COUNTIF(event_type = 'moment_selected') AS moments_explored
       FROM ${table}
