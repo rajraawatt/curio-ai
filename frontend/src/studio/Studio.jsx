@@ -6,6 +6,43 @@ import { LessonClipPlayer } from "./LessonClipPlayer.jsx";
 import { savedRocketSession, studioMocks } from "./studioMock.js";
 import { clearDraft, hasLessonAssets, readDraft, readHistory, readStarred, saveDraft, savedChat, storeChat, writeHistory, writeStarred } from "./storage.js";
 
+function usesChapterFiles(session) {
+  if (!session || session.id === "rocket-saved") return false;
+  const lessonUrl = String(session.video?.url || "");
+  if (lessonUrl.includes("/1791914535838/")) return false;
+  if (session.moments?.some((moment) => moment.clip?.url)) return true;
+  if (session.video?.voiced) return true;
+  return /^\d+$/.test(String(session.id || "")) && (session.video?.durationSeconds || 0) > 16;
+}
+
+function chapterClipFor(session, index) {
+  const moment = session?.moments?.[index];
+  if (!moment) return null;
+  if (!moment.clip?.url) {
+    const start = moment.seekSec;
+    const next = session.moments?.[index + 1]?.seekSec;
+    const end = next != null ? next : session.video?.durationSeconds;
+    if (start != null && end != null && end - start < 8) return null;
+  }
+  const saved = moment.clip?.url
+    ? moment.clip.url
+    : String(session.video?.url || "").includes("/video/lesson-")
+      ? session.video.url.replace(/lesson-[^./?]+/, `chapter-${index + 1}`)
+      : "";
+  if (!saved) return null;
+  const frames = Math.max((moment.images?.length || 1) - 1, 1);
+  return {
+    id: moment.id || `chapter-${index + 1}`,
+    merged: false,
+    voiced: true,
+    title: moment.title,
+    url: saved,
+    posterUrl: moment.clip?.posterUrl || moment.images?.find((image) => image.url)?.url || null,
+    durationSeconds: moment.clip?.durationSeconds || frames * 8,
+    captions: moment.clip?.captions || [],
+  };
+}
+
 function structureRows(label) {
   return (label?.panels?.structure || [])
     .map((row) => ({
@@ -77,6 +114,28 @@ function ReadyImage({ src, className = "absolute inset-0 h-full w-full object-co
   );
 }
 
+function chapterSpan(item, next) {
+  if (item?.clip?.durationSeconds) return item.clip.durationSeconds;
+  if (item?.seconds) return item.seconds;
+  if (next?.seekSec != null && item?.seekSec != null && next.seekSec > item.seekSec) return next.seekSec - item.seekSec;
+  return 8;
+}
+
+function StudioProgress({ progress, notice, detail, dark }) {
+  return (
+    <div className={`relative h-12 overflow-hidden rounded-xl ${dark ? "bg-black/55" : "bg-white/10"}`}>
+      <div className="absolute inset-y-0 left-0 bg-[#7C3AED] transition-[width] duration-300" style={{ width: `${progress}%` }} />
+      <div className="relative flex h-full flex-col justify-center gap-0.5 px-3 text-[0.72rem] font-semibold leading-tight text-white">
+        <span className="flex items-center justify-between gap-3">
+          <span className="truncate">{notice || "Planning"}</span>
+          <span>{progress}%</span>
+        </span>
+        <span className="truncate text-[0.68rem] font-medium text-white/75">{detail || "Waiting for the first image"}</span>
+      </div>
+    </div>
+  );
+}
+
 function shortSpan(seconds) {
   const total = Math.max(1, Math.round(Number(seconds) || 0));
   if (total < 60) return `${total} sec`;
@@ -142,6 +201,10 @@ export function Studio({ mockId = "" }) {
   const [busy, setBusy] = useState(() => !mockSession && Boolean(readDraft()?.busy));
   const [progress, setProgress] = useState(() => (!mockSession && readDraft()?.progress) || 0);
   const [notice, setNotice] = useState(() => (!mockSession && readDraft()?.notice) || "");
+  const [statusLog, setStatusLog] = useState(() => {
+    const saved = !mockSession && readDraft()?.log;
+    return Array.isArray(saved) ? saved : [];
+  });
   const [error, setError] = useState("");
   const [session, setSession] = useState(() => mockSession || (!mockId && readDraft()?.session) || null);
   const [momentIndex, setMomentIndex] = useState(0);
@@ -187,10 +250,14 @@ export function Studio({ mockId = "" }) {
   const playbackRef = useRef(null);
   const previewVideoRef = useRef(null);
   const momentIndexRef = useRef(0);
+  const bridgeTimer = useRef(null);
+  const handoffRef = useRef(false);
+  const [bridge, setBridge] = useState(null);
+  const [playToken, setPlayToken] = useState(0);
 
   const moment = session?.moments?.[momentIndex] || null;
   const images = moment?.images || [];
-  const image = images[imageIndex] || images.find((item) => item.url) || null;
+  const image = images[imageIndex]?.url ? images[imageIndex] : null;
   const viewImage =
     panelView === "exploded" ? moment?.exploded : panelView === "inside" ? moment?.inside : image;
   const label = focus || moment?.labels?.[0] || null;
@@ -205,7 +272,8 @@ export function Studio({ mockId = "" }) {
 
   useEffect(() => {
     if (!messages.length && !tutorBusy) return;
-    chatEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    const box = chatEndRef.current?.parentElement;
+    if (box) box.scrollTop = box.scrollHeight;
   }, [messages, tutorBusy]);
 
   useEffect(() => {
@@ -222,6 +290,16 @@ export function Studio({ mockId = "" }) {
   useEffect(() => {
     momentIndexRef.current = momentIndex;
   }, [momentIndex]);
+
+  useEffect(() => {
+    if (!playToken) return undefined;
+    const timer = window.setTimeout(() => playbackRef.current?.play(), 80);
+    return () => window.clearTimeout(timer);
+  }, [playToken]);
+
+  useEffect(() => () => {
+    if (bridgeTimer.current) window.clearTimeout(bridgeTimer.current);
+  }, []);
 
   useEffect(() => {
     if (mock) return undefined;
@@ -264,8 +342,8 @@ export function Studio({ mockId = "" }) {
       clearDraft();
       return;
     }
-    saveDraft({ session, notice, progress, busy, learningStarted });
-  }, [session, notice, progress, busy, learningStarted, mock]);
+    saveDraft({ session, notice, progress, busy, learningStarted, log: statusLog });
+  }, [session, notice, progress, busy, learningStarted, statusLog, mock]);
 
   useEffect(() => {
     if (mock || !busy) return undefined;
@@ -278,8 +356,13 @@ export function Studio({ mockId = "" }) {
         if (!res.ok) return;
         const data = await res.json();
         if (stop) return;
-        if (data.session) setSession(data.session);
+        if (data.session) {
+          setSession(data.session);
+          const first = data.session.moments?.[0]?.labels?.[0];
+          if (first) setFocus((current) => current || first);
+        }
         if (data.notice) setNotice(data.notice);
+        if (Array.isArray(data.log)) setStatusLog(data.log);
         if (data.progress != null) setProgress(Math.max(0, Math.min(100, Math.round(data.progress))));
         if (data.done) setBusy(false);
       } catch {
@@ -302,6 +385,12 @@ export function Studio({ mockId = "" }) {
   function applyMoment(index, seek) {
     const next = session?.moments?.[index];
     if (!next) return;
+    if (bridgeTimer.current) {
+      window.clearTimeout(bridgeTimer.current);
+      bridgeTimer.current = null;
+    }
+    handoffRef.current = false;
+    setBridge(null);
     setMomentIndex(index);
     setImageIndex(0);
     setZoom(1);
@@ -310,10 +399,25 @@ export function Studio({ mockId = "" }) {
     setQuestion("");
     setPreviewPlaying(false);
     previewVideoRef.current?.pause();
+    if (usesChapterFiles(session)) {
+      setPlayToken((token) => token + 1);
+      return;
+    }
     if (seek && next.seekSec != null) playbackRef.current?.seek(next.seekSec);
   }
 
   function onTime(time) {
+    if (usesChapterFiles(session)) {
+      const chapter = session?.moments?.[momentIndexRef.current];
+      const count = chapter?.images?.length || 1;
+      const step = chapter?.clip?.stepSeconds || 8;
+      const endAt = Math.max(count - 1, 0) * step;
+      const frame = count > 1 && time >= endAt - 0.35
+        ? count - 1
+        : Math.min(Math.floor(Math.max(time, 0) / step), Math.max(count - 1, 0));
+      setImageIndex((current) => (current === frame ? current : frame));
+      return;
+    }
     const moments = session?.moments || [];
     let index = -1;
     moments.forEach((item, i) => {
@@ -327,6 +431,31 @@ export function Studio({ mockId = "" }) {
       setCropping(false);
       setFocus(next.labels?.[0] || null);
     }
+  }
+
+  function onChapterEnded() {
+    if (!usesChapterFiles(session) || handoffRef.current) return;
+    handoffRef.current = true;
+    const current = momentIndexRef.current;
+    const moments = session?.moments || [];
+    const next = moments[current + 1];
+    if (!next || !chapterClipFor(session, current + 1)) {
+      setBridge({ index: current, done: true });
+      return;
+    }
+    setBridge({ index: current + 1, done: false });
+    setMomentIndex(current + 1);
+    setImageIndex(0);
+    setZoom(1);
+    setCropping(false);
+    setFocus(next.labels?.[0] || null);
+    if (bridgeTimer.current) window.clearTimeout(bridgeTimer.current);
+    bridgeTimer.current = window.setTimeout(() => {
+      bridgeTimer.current = null;
+      handoffRef.current = false;
+      setBridge(null);
+      setPlayToken((token) => token + 1);
+    }, 2500);
   }
 
   async function generate(event, textOverride) {
@@ -344,7 +473,8 @@ export function Studio({ mockId = "" }) {
     setBusy(true);
     setProgress(0);
     setError("");
-    setNotice("Starting…");
+    setNotice("Planning");
+    setStatusLog([]);
     setSession({
       id: `pending-${Date.now()}`,
       topic: text.slice(0, 120),
@@ -383,8 +513,13 @@ export function Studio({ mockId = "" }) {
       await readStudioStream(res, (eventName, data) => {
         if (eventName === "status") {
           if (data.notice) setNotice(data.notice);
+          if (Array.isArray(data.log)) setStatusLog(data.log);
           if (data.progress != null) setProgress(Math.max(0, Math.min(100, Math.round(data.progress))));
-          if (data.session) setSession(data.session);
+          if (data.session) {
+            setSession(data.session);
+            const first = data.session.moments?.[0]?.labels?.[0];
+            if (first) setFocus((current) => current || first);
+          }
           if (data.done) setBusy(false);
         }
         if ((eventName === "session" || eventName === "done") && data.session) {
@@ -519,18 +654,25 @@ export function Studio({ mockId = "" }) {
   }
 
   const showWorkspace = Boolean(session) || busy || watchMode;
-  const clip = session?.video?.url
-    ? {
-        id: "studio-lesson",
-        merged: true,
-        title: session.topic,
-        url: session.video.url,
-        posterUrl: session.video.posterUrl,
-        durationSeconds: session.video.durationSeconds,
-        captions: session.video.captions,
-        packId: "studio",
-      }
-    : null;
+  const chapterMode = usesChapterFiles(session);
+  const activeChapter = chapterMode ? chapterClipFor(session, momentIndex) : null;
+  const clip = chapterMode
+    ? activeChapter
+    : (session?.video?.url
+      ? {
+          id: "studio-lesson",
+          merged: true,
+          voiced: Boolean(session.video.voiced),
+          title: session.topic,
+          url: session.video.url,
+          posterUrl: session.video.posterUrl,
+          durationSeconds: session.video.durationSeconds,
+          captions: session.video.captions,
+          packId: "studio",
+        }
+      : null);
+  const chapterStill = moment?.images?.find((item) => item.url)?.url || null;
+  const bridgeMoment = bridge ? session?.moments?.[bridge.index] : null;
   return (
     <main className="relative flex h-screen overflow-hidden bg-black font-[Inter,sans-serif] text-[#e8eaed]">
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -649,25 +791,15 @@ export function Studio({ mockId = "" }) {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {busy && (
             <div className="shrink-0 px-4 pt-3">
-              <div className="mb-1 flex items-center justify-between gap-3 text-xs font-medium text-white/70">
-                <span className="truncate">{notice || "Generating the lesson…"}</span>
-                <span className="shrink-0">{progress}%</span>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full rounded-full bg-[#7C3AED] transition-[width] duration-300" style={{ width: `${progress}%` }} />
-              </div>
+              <StudioProgress progress={progress} notice={notice} detail={statusLog[statusLog.length - 1]} />
             </div>
           )}
           {error && !busy && <p className="m-0 shrink-0 px-4 pt-3 text-xs font-medium text-red-300">{error}</p>}
           <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside className="flex w-[380px] shrink-0 flex-col border-r border-white/10 bg-black px-4 py-5">
             <p className="m-0 text-base font-semibold">Lesson Structure</p>
-            <p className="m-0 mt-1 text-xs font-medium text-white/40">{session.moments?.length || 0} moments · {(() => {
-              const total = session.video?.durationSeconds || (session.moments || []).reduce((sum, item, index, list) => {
-                const start = item.seekSec ?? index * 8;
-                const end = list[index + 1]?.seekSec ?? start + 8;
-                return sum + Math.max(0, end - start);
-              }, 0);
+            <p className="m-0 mt-1 text-xs font-medium text-white/40">{session.moments?.length || 0} chapters · {(() => {
+              const total = session.video?.durationSeconds || (session.moments || []).reduce((sum, item, index, list) => sum + chapterSpan(item, list[index + 1]), 0);
               return total >= 60 ? `${Math.max(1, Math.round(total / 60))} min` : clock(total);
             })()}</p>
             <ol className="m-0 mt-4 min-h-0 flex-1 list-none overflow-y-auto p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -677,9 +809,7 @@ export function Studio({ mockId = "" }) {
               {(session.moments || []).map((item, index, list) => {
                 const active = index === momentIndex;
                 const thumb = item.images?.find((image) => image.url)?.url;
-                const start = item.seekSec ?? index * 8;
-                const end = list[index + 1]?.seekSec ?? (session.video?.durationSeconds || start + 8);
-                const span = Math.max(1, Math.round(end - start));
+                const span = Math.max(0, Math.round(chapterSpan(item, list[index + 1])));
                 const lengthLabel = span >= 60 ? `${Math.max(1, Math.round(span / 60))} min` : `${span} sec`;
                 const detail = item.summary || item.caption || item.points?.[0] || "";
                 return (
@@ -743,7 +873,7 @@ export function Studio({ mockId = "" }) {
                   preload="metadata"
                   className="absolute inset-0 h-full w-full object-cover"
                   onTimeUpdate={(event) => {
-                    const start = session.moments?.[momentIndex]?.seekSec ?? 0;
+                    const start = chapterMode ? 0 : (session.moments?.[momentIndex]?.seekSec ?? 0);
                     if (event.currentTarget.currentTime >= start + 5) {
                       event.currentTarget.pause();
                       setPreviewPlaying(false);
@@ -769,7 +899,7 @@ export function Studio({ mockId = "" }) {
                   onClick={() => {
                     const video = previewVideoRef.current;
                     if (!video) return;
-                    const start = session.moments?.[momentIndex]?.seekSec ?? 0;
+                    const start = chapterMode ? 0 : (session.moments?.[momentIndex]?.seekSec ?? 0);
                     video.currentTime = start;
                     video.play().then(() => setPreviewPlaying(true)).catch(() => {});
                   }}
@@ -830,7 +960,7 @@ export function Studio({ mockId = "" }) {
                 <p className="m-0 text-sm font-semibold">Lesson Highlights</p>
                 <p className="m-0 flex items-center gap-1 text-xs font-medium text-white/45">
                   <Clock size={12} />
-                  {session.moments?.length || 0} moments · {(() => {
+                  {session.moments?.length || 0} chapters · {(() => {
                     const total = session.video?.durationSeconds || (session.moments || []).reduce((sum, item, index, list) => {
                       const start = item.seekSec ?? index * 8;
                       const end = list[index + 1]?.seekSec ?? start + 8;
@@ -940,11 +1070,7 @@ export function Studio({ mockId = "" }) {
               const moments = session?.moments || [];
               const total = Math.max(moments.length, 1);
               const progressPct = Math.round(((momentIndex + (busy ? 0 : 1)) / total) * 100);
-              const duration = session?.video?.durationSeconds || moments.reduce((sum, item, index) => {
-                const next = moments[index + 1]?.seekSec;
-                const span = next != null && item.seekSec != null ? next - item.seekSec : 8;
-                return sum + Math.max(span, 0);
-              }, 0);
+              const duration = session?.video?.durationSeconds || moments.reduce((sum, item, index) => sum + chapterSpan(item, moments[index + 1]), 0);
               const elapsed = moments[momentIndex]?.seekSec || 0;
               const left = Math.max(0, duration - elapsed);
               const cover = session?.video?.posterUrl || moments[0]?.images?.find((imageItem) => imageItem.url)?.url;
@@ -978,7 +1104,12 @@ export function Studio({ mockId = "" }) {
                     />
                   )}
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-[#16141f] via-[#16141f]/75 to-transparent" />
-                  <div className="relative flex items-start justify-between gap-2 p-3">
+                  {busy && (
+                    <div className="absolute inset-x-3 top-3 z-30">
+                      <StudioProgress progress={progress} notice={notice} detail={statusLog[statusLog.length - 1]} dark />
+                    </div>
+                  )}
+                  <div className={`relative flex items-start justify-between gap-2 px-3 ${busy ? "pt-16" : "pt-3"}`}>
                     <span className="flex items-center gap-1.5 rounded-full bg-[#6d28d9]/40 px-2.5 py-1 text-[0.68rem] font-semibold text-white shadow-lg backdrop-blur-sm">
                       <Play size={11} fill="currentColor" /> Lesson in Progress
                     </span>
@@ -993,13 +1124,14 @@ export function Studio({ mockId = "" }) {
                 </div>
               </div>
               <div className="flex w-full flex-col gap-4 p-3">
-                <div className="flex items-center gap-3 px-1">
-                  <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10">
-                    <div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#d946ef]" style={{ width: `${progressPct}%` }} />
+                {!busy && (
+                  <div className="flex items-center gap-3 px-1">
+                    <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#d946ef]" style={{ width: `${progressPct}%` }} />
+                    </div>
+                    <span className="shrink-0 text-xs font-semibold text-white/80">{progressPct}%</span>
                   </div>
-                  <span className="shrink-0 text-xs font-semibold text-white/80">{progressPct}%</span>
-                </div>
-                {notice && <p className="m-0 px-1 text-xs font-medium text-[#c4b5fd]">{notice}</p>}
+                )}
                 {error && <p className="m-0 px-1 text-xs font-medium text-[#f9a8d4]">{error}</p>}
                 {busy && !moments.length && (
                   <div className="flex items-center gap-2 px-1 text-sm font-medium text-white/60">
@@ -1011,8 +1143,7 @@ export function Studio({ mockId = "" }) {
                   {moments.map((item, index) => {
                     const active = index === momentIndex;
                     const done = index < momentIndex;
-                    const nextAt = moments[index + 1]?.seekSec;
-                    const span = nextAt != null && item.seekSec != null ? nextAt - item.seekSec : 8;
+                    const span = chapterSpan(item, moments[index + 1]);
                     const state = done ? "Watched" : active ? "In Progress" : "Locked";
                     const detail = item.summary || item.caption;
                     return (
@@ -1031,7 +1162,7 @@ export function Studio({ mockId = "" }) {
                           <span className="min-w-0 flex-1">
                             <span className={`block text-[0.98rem] font-semibold leading-snug ${done || active ? "text-white" : "text-white/45"}`}>{item.title}</span>
                             {detail && <span className="mt-1 block text-[0.78rem] font-medium leading-snug text-white/60">{detail}</span>}
-                            <span className={`mt-1 block text-[0.72rem] font-medium ${active ? "text-[#c4b5fd]" : "text-white/40"}`}>{shortSpan(span)} • {state}</span>
+                            <span className={`mt-1 block text-[0.72rem] font-medium ${active ? "text-[#c4b5fd]" : "text-white/40"}`}>{span > 0 ? shortSpan(span) : "0 sec"} • {state}</span>
                           </span>
                           {active && <AudioLines size={18} className="mt-1 shrink-0 text-[#c084fc]" />}
                         </button>
@@ -1136,8 +1267,14 @@ export function Studio({ mockId = "" }) {
                   onZoom={() => setVideoFull((full) => !full)}
                   zoomed={videoFull}
                   onCrop={receiveCrop}
+                  onEnded={onChapterEnded}
                   wide
                 />
+              ) : chapterMode && moment ? (
+                <div className="relative grid h-full min-h-[240px] place-items-center overflow-hidden rounded-xl bg-black">
+                  {chapterStill && <img src={chapterStill} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+                  <p className="relative m-0 max-w-sm px-6 text-center text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.85)]">This chapter has no video yet.</p>
+                </div>
               ) : (
                 <div className="grid h-full min-h-[240px] place-items-center rounded-2xl bg-black/40 text-sm font-bold text-white/60">
                   {busy ? (
@@ -1149,32 +1286,59 @@ export function Studio({ mockId = "" }) {
                   )}
                 </div>
               )}
+              {bridge && bridgeMoment && (
+                <div className="absolute inset-0 z-40 overflow-hidden rounded-xl bg-black">
+                  {bridgeMoment.images?.find((image) => image.url)?.url && (
+                    <img src={bridgeMoment.images.find((image) => image.url).url} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/75 to-black/25" />
+                  <div className="absolute inset-x-0 bottom-0 p-6">
+                    <p className="m-0 text-sm font-semibold text-white/75">{bridge.done ? "Lesson complete" : `Chapter ${bridge.index + 1}`}</p>
+                    <h2 className="m-0 mt-1 text-3xl font-black">{bridgeMoment.title}</h2>
+                    {bridgeMoment.caption && <p className="m-0 mt-2 max-w-xl text-sm font-medium leading-snug text-white/85">{bridgeMoment.caption}</p>}
+                    {bridgeMoment.points?.length > 0 && (
+                      <ul className="m-0 mt-3 grid max-w-xl list-none gap-1 p-0">
+                        {bridgeMoment.points.slice(0, 3).map((point) => (
+                          <li key={point} className="text-sm font-medium leading-snug text-white/75">{point}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <div className={`items-center justify-between gap-2 ${videoFull ? "hidden" : "flex"}`}>
               <p className="m-0 text-sm font-semibold">Moments</p>
               <button type="button" className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-white/80 min-[1200px]:hidden" onClick={() => setDetailsOpen(true)}>
                 Moment details
               </button>
-              <p className="m-0 text-xs font-bold text-white/50">{momentIndex + 1} / {Math.max(session?.moments?.length || 1, 1)}</p>
+              <p className="m-0 text-xs font-bold text-white/50">{(images.length ? imageIndex : momentIndex) + 1} / {Math.max(images.length || session?.moments?.length || 1, 1)}</p>
             </div>
             <div className={`gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${videoFull ? "hidden" : "flex"}`}>
-              {(session?.moments?.length ? session.moments : [0, 1, 2, 3, 4]).map((item, index) => {
-                const active = index === momentIndex;
-                const thumb = item?.images?.find((imageItem) => imageItem.url);
+              {(images.length ? images : [0, 1, 2, 3, 4]).map((item, index) => {
+                const active = images.length ? index === imageIndex : index === momentIndex;
+                const thumb = item?.url ? item : null;
                 return (
                   <button
                     key={item?.id || index}
                     type="button"
                     className={`w-36 shrink-0 overflow-hidden rounded-xl border text-left ${active ? "border-[#a855f7]" : "border-white/10"}`}
-                    onClick={() => applyMoment(index, true)}
-                    disabled={!item?.id}
+                    onClick={() => {
+                      if (!images.length) {
+                        applyMoment(index, true);
+                        return;
+                      }
+                      setImageIndex(index);
+                      const at = index * (moment?.clip?.stepSeconds || 8);
+                      playbackRef.current?.seek(index >= images.length - 1 ? Math.max(at - 0.3, 0) : at);
+                    }}
+                    disabled={images.length ? !moment : !item?.id}
                   >
                     <div className="relative grid aspect-video place-items-center bg-black">
-                      {thumb?.url ? <img src={thumb.url} alt="" className="h-full w-full object-cover" /> : busy ? <Loader2 size={16} className="animate-spin text-white/40" /> : null}
+                      {thumb?.url ? <img src={thumb.url} alt="" className="h-full w-full object-cover" /> : busy ? <Loader2 size={16} className="animate-spin text-white/40" /> : item?.error ? <span className="px-2 text-center text-[0.65rem] font-semibold text-white/45">Missed</span> : null}
                       <span className={`absolute left-1 top-1 grid h-5 w-5 place-items-center rounded-full text-[0.65rem] font-black text-white ${active ? "bg-[#7C3AED]" : "bg-black/70"}`}>{index + 1}</span>
                     </div>
-                    <span className="block truncate px-2 pt-1 text-[0.72rem] font-extrabold">{item?.title || `Moment ${index + 1}`}</span>
-                    <span className="block px-2 pb-1 text-[0.68rem] font-bold text-white/45">{clock(item?.seekSec ?? index * 8)} – {clock(session?.moments?.[index + 1]?.seekSec ?? (item?.seekSec ?? index * 8) + 8)}</span>
+                    <span className="block px-2 py-1 text-[0.68rem] font-bold text-white/45">{clock(images.length ? index * (moment?.clip?.stepSeconds || 8) : (item?.seekSec ?? index * 8))}</span>
                   </button>
                 );
               })}
@@ -1184,7 +1348,7 @@ export function Studio({ mockId = "" }) {
           <aside className={`${videoFull ? "hidden" : detailsOpen ? "fixed bottom-0 right-0 top-16 z-30 flex w-[min(440px,100vw)]" : "hidden"} h-auto min-h-0 min-w-0 flex-col overflow-hidden bg-[#07070f] ${videoFull ? "" : "min-[900px]:static min-[900px]:flex min-[900px]:h-full min-[900px]:w-auto"}`}>
             <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <div
-                className={`group relative aspect-video w-full touch-none overflow-hidden bg-black ${stillZoom ? (stillDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-pointer"}`}
+                className={`group relative aspect-video w-full shrink-0 touch-none overflow-hidden bg-black ${stillZoom ? (stillDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-pointer"}`}
                 onPointerDown={(event) => {
                   if (!stillZoom || event.target.closest("button")) return;
                   const box = event.currentTarget.getBoundingClientRect();
@@ -1240,7 +1404,7 @@ export function Studio({ mockId = "" }) {
                   {stillZoom ? <ZoomOut size={16} /> : <ZoomIn size={16} />}
                 </button>
               </div>
-              <div className="flex items-center gap-2 px-4 pt-3">
+              <div className="flex shrink-0 items-center gap-2 px-4 pt-3">
                 {[["overview", "Overview"], ["function", "Function"], ["structure", "Structure"]].map(([id, name]) => (
                   <button
                     key={id}
@@ -1263,7 +1427,7 @@ export function Studio({ mockId = "" }) {
                 <button type="button" className="rounded-full px-2 py-1 text-xs font-semibold text-white/70 min-[900px]:hidden" onClick={() => setDetailsOpen(false)}>Close</button>
               </div>
               {detailTab === "overview" && (
-                <div className="grid gap-3 px-4 pt-2">
+                <div className="grid shrink-0 gap-3 px-4 pt-2">
                   <div>
                     <p className="m-0 text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-white/45">Key moment {momentIndex + 1}</p>
                     <h3 className="m-0 mt-1 text-2xl font-bold tracking-tight">{moment?.title || "This moment"}</h3>
@@ -1300,7 +1464,7 @@ export function Studio({ mockId = "" }) {
                 const functionFact = (label?.facts || moment?.facts || []).find((row) => Array.isArray(row) && /function/i.test(String(row[0])));
                 const lead = functionFact?.[1] || label?.blurb || moment?.caption;
                 return (
-                  <div className="px-4 pt-3">
+                  <div className="shrink-0 px-4 pt-3">
                     {lead && <p className="m-0 text-sm font-medium leading-snug text-white/55">{lead}</p>}
                     {steps.length > 0 ? (
                       <div className="mt-4 border-t border-white/10 pt-5">
@@ -1347,7 +1511,7 @@ export function Studio({ mockId = "" }) {
                 );
               })()}
               {detailTab === "structure" && (
-                <div className="grid gap-2 px-4 pt-3">
+                <div className="grid shrink-0 gap-2 px-4 pt-3">
                   {(label?.panels?.structure?.length ? label.panels.structure : structureRows(label)).map((row) => (
                     <div key={row.name} className="rounded-2xl border border-white/10 px-3 py-2.5">
                       <p className="m-0 text-sm font-semibold">{row.name}</p>
@@ -1358,7 +1522,7 @@ export function Studio({ mockId = "" }) {
                 </div>
               )}
             </div>
-            <div className={`relative mx-3 mb-3 mt-auto flex min-h-0 shrink-0 flex-col rounded-2xl border border-white/10 bg-[#12101c] p-3 ${messages.length || tutorBusy ? "max-h-[58%] min-h-[12rem] flex-1" : ""}`}>
+            <div className={`relative mx-3 mb-3 mt-auto flex min-h-0 shrink-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12101c] p-3 ${messages.length || tutorBusy ? "max-h-[58%] min-h-[12rem]" : ""}`}>
               <div className={`flex items-center ${messages.length || tutorBusy ? "gap-2" : "gap-3"}`}>
                 <img ref={agentRef} src={messages.length || tutorBusy ? "/curio-chat.png" : "/curio-agent.png"} alt="" className={`shrink-0 object-contain ${messages.length || tutorBusy ? "h-8 w-10" : "h-12 w-12"}`} />
                 <div className="min-w-0 flex-1">

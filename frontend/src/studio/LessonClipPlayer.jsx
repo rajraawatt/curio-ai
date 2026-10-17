@@ -12,6 +12,7 @@ function clipCues(clip) {
     : clip?.narration
       ? [{ atSec: 0, text: clip.narration }]
       : [];
+  if ((Number(clip?.durationSeconds) || 0) > 12 && raw.some((cue) => Number(cue.atSec) >= 6)) return raw;
   if (raw.length >= 3) {
     return [
       { ...raw[0], atSec: 0 },
@@ -78,6 +79,7 @@ export function LessonClipPlayer({
   onZoom,
   zoomed = false,
   onCrop,
+  onEnded,
   playbackRef,
   preload = "metadata",
   deferSrc = false,
@@ -92,7 +94,8 @@ export function LessonClipPlayer({
   const finishedRef = useRef(-1);
   const [time, setTime] = useState(0);
   const [reading, setReading] = useState(-1);
-  const cues = clipCues(clip);
+  const fileHasVoice = Boolean(clip?.voiced) || (wide && (Number(clip?.durationSeconds) || 0) > 16);
+  const cues = fileHasVoice && !clip?.voiced ? [] : clipCues(clip);
   const dueIndex = cueIndex(cues, time);
   const line = cueText(cues[reading >= 0 ? reading : dueIndex], lang);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -238,6 +241,7 @@ export function LessonClipPlayer({
   const startNextRef = useRef(() => {});
 
   startNextRef.current = (video) => {
+    if (fileHasVoice) return;
     if (!video || video.ended || speakingRef.current) return;
     const next = finishedRef.current + 1;
     if (next >= cues.length) return;
@@ -267,6 +271,10 @@ export function LessonClipPlayer({
   };
 
   useEffect(() => {
+    if (fileHasVoice) {
+      stopCaptionVoice(videoRef.current);
+      return undefined;
+    }
     cues.forEach((cue) => prefetchCaption(cueText(cue, lang), lang, ageGroup));
     speakingRef.current = false;
     finishedRef.current = -1;
@@ -421,7 +429,13 @@ export function LessonClipPlayer({
             }
             startNextRef.current(video);
           }}
-          onEnded={(e) => setTime(e.currentTarget.duration || e.currentTarget.currentTime)}
+          onEnded={(e) => {
+            const video = e.currentTarget;
+            const expected = Number(clip?.durationSeconds) || 0;
+            if (expected > 9 && (video.currentTime || 0) < expected - 1.5) return;
+            setTime(video.duration || video.currentTime);
+            onEnded?.();
+          }}
           onSeeked={(e) => {
             const video = e.currentTarget;
             stopCaptionVoice(video);
