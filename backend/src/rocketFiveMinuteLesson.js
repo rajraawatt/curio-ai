@@ -81,7 +81,7 @@ function runFfmpeg(args, { timeoutMs = 120_000, onHeartbeat } = {}) {
     }, 10_000) : null;
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
-      finish(new Error(`FFmpeg timed out after ${Math.round(timeoutMs / 1000)} seconds${stderr.trim() ? `: ${stderr.split("\\n").filter(Boolean).slice(-3).join(" ")}` : ""}`));
+      finish(new Error(`FFmpeg timed out after ${Math.round(timeoutMs / 1000)} seconds${stderr.trim() ? `: ${stderr.split(/\r?\n/).filter(Boolean).slice(-3).join(" ")}` : ""}`));
     }, timeoutMs);
     const finish = (error) => {
       if (settled) return;
@@ -95,7 +95,7 @@ function runFfmpeg(args, { timeoutMs = 120_000, onHeartbeat } = {}) {
     child.on("error", finish);
     child.on("close", (code) => code === 0
       ? finish()
-      : finish(new Error(stderr.split("\\n").filter(Boolean).slice(-5).join(" ") || `ffmpeg exited ${code}`)));
+      : finish(new Error(stderr.split(/\r?\n/).filter(Boolean).slice(-5).join(" ") || `ffmpeg exited ${code}`)));
   });
 }
 
@@ -272,7 +272,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
   await fs.writeFile(listPath, list, "utf8");
   const tmpPath = path.join(videoDir, ".rocket-five-minute.tmp.mp4");
   try {
-    await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", String(FPS), "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", tmpPath]);
+    await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p", "-r", String(FPS), "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", tmpPath], { timeoutMs: 180_000, onHeartbeat: () => emit("The chapter videos are ready. Still assembling the downloadable full lesson…", null) });
     if (!(await fileExistsWithContent(tmpPath, 100_000))) throw new Error("FFmpeg created an empty combined lesson video.");
     await fs.rename(tmpPath, finalPath);
   } catch (err) { await fs.unlink(tmpPath).catch(() => {}); throw err; }
