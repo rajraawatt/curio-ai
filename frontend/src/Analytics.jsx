@@ -75,11 +75,13 @@ export function Analytics() {
       {loading && <div className="mt-8 rounded-2xl border border-white/10 p-8 text-sm text-white/50"><RefreshCw size={16} className="mr-2 inline animate-spin" />Loading BigQuery insights…</div>}
       {!loading && error && <section className="mt-8 rounded-2xl border border-amber-300/20 bg-amber-300/[.06] p-5"><div className="flex items-start gap-3"><CircleAlert className="mt-0.5 shrink-0 text-amber-200" /><div><h2 className="m-0 text-lg font-bold">Analytics needs setup</h2><p className="m-0 mt-2 text-sm leading-relaxed text-white/65">{error}</p><p className="m-0 mt-2 text-sm text-white/55">Enable the BigQuery API, create the dataset/table from <code>sql/bigquery_setup.sql</code>, then grant the Cloud Run service identity permission to insert events and run queries. This dashboard intentionally does not substitute mock numbers for live data.</p></div></div></section>}
       {!loading && data && <>
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <Metric label="Active sessions" value={number(data.kpis.active_sessions)} hint="Distinct sessions with activity" icon={Users} />
           <Metric label="Lessons started" value={number(data.kpis.lessons_started)} hint="New learning journeys" icon={BookOpen} />
           <Metric label="Questions asked" value={number(data.kpis.questions_asked)} hint="Signals of learner curiosity" icon={MessageCircle} />
           <Metric label="Moments explored" value={number(data.kpis.moments_explored)} hint="Timestamped content interactions" icon={Activity} />
+          <Metric label="Curiosity rate" value={percent(Number(data.kpis.active_sessions) ? Number(data.kpis.curious_sessions) / Number(data.kpis.active_sessions) : 0)} hint="Sessions that asked at least one question" icon={Sparkles} />
+          <Metric label="Questions per lesson start" value={number(data.kpis.questions_per_started_lesson)} hint="A directional engagement signal, not a learning score" icon={BrainCircuit} />
         </div>
         <div className="mt-4 grid gap-4 xl:grid-cols-[1.5fr_1fr]">
           <section className="rounded-2xl border border-white/10 bg-white/[.035] p-4 sm:p-5"><div className="mb-4 flex items-center gap-2"><BarChart3 size={18} className="text-violet-300" /><div><h2 className="m-0 text-base font-bold">Engagement over time</h2><p className="m-0 mt-1 text-xs text-white/40">Daily lesson starts, questions and moments selected</p></div></div><TrendChart data={data.trend} /></section>
