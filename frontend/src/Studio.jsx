@@ -1131,10 +1131,10 @@ export function Studio({ mockId = "" }) {
                     <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10">
                       <div
                         className="h-full rounded-full bg-[#a855f7]"
-                        style={{ width: busy && !session?.moments?.length ? `${progress}%` : `${((momentIndex + 1) / Math.max(session?.moments?.length || 1, 1)) * 100}%` }}
+                        style={{ width: `${busy ? progress : ((momentIndex + 1) / Math.max(session?.moments?.length || 1, 1)) * 100}%` }}
                       />
                     </div>
-                    <span className="shrink-0 text-[0.65rem] font-medium text-white/50">{busy && !session?.moments?.length ? `${progress}%` : `${momentIndex + 1} / ${Math.max(session?.moments?.length || 0, 1)}`}</span>
+                    <span className="shrink-0 text-[0.65rem] font-medium text-white/50">{busy && session?.moments?.length ? `${session.moments.length} / 8 ready` : busy ? `${progress}%` : `${momentIndex + 1} / ${Math.max(session?.moments?.length || 0, 1)}`}</span>
                   </div>
                   {notice && <p className="m-0 mt-1 text-xs font-bold text-[#c4b5fd]">{notice}</p>}
                   {error && <p className="m-0 mt-1 text-xs font-bold text-[#f9a8d4]">{error}</p>}
