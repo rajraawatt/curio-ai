@@ -532,3 +532,66 @@ export function healthInfo(extra = {}) {
     ...extra,
   };
 }
+
+
+function configuredBucket() {
+  return String(process.env.GCS_BUCKET || "").replace(/^gs:\/\//, "").replace(/\/$/, "");
+}
+
+/**
+ * Store a generated asset in the configured private Cloud Storage bucket.
+ * Returns a same-origin API URL so the bucket does not need public access.
+ */
+export async function uploadGcsObject(objectName, contents, contentType = "application/octet-stream") {
+  const bucket = configuredBucket();
+  if (!bucket) return null;
+
+  const token = await accessToken();
+  const startUrl = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucket)}/o?uploadType=resumable&name=${encodeURIComponent(objectName)}`;
+  const start = await fetch(startUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=UTF-8",
+      "X-Upload-Content-Type": contentType,
+    },
+    body: "{}",
+  });
+  if (!start.ok) {
+    const detail = await start.text().catch(() => "");
+    throw new Error(`Cloud Storage upload could not start (${start.status}): ${detail.slice(0, 300)}`);
+  }
+  const uploadUrl = start.headers.get("location");
+  if (!uploadUrl) throw new Error("Cloud Storage did not return a resumable upload URL");
+
+  const payload = Buffer.isBuffer(contents) ? contents : Buffer.from(contents);
+  const uploaded = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": contentType, "Content-Length": String(payload.length) },
+    body: payload,
+  });
+  if (!uploaded.ok) {
+    const detail = await uploaded.text().catch(() => "");
+    throw new Error(`Cloud Storage upload failed (${uploaded.status}): ${detail.slice(0, 300)}`);
+  }
+  return `/api/assets?name=${encodeURIComponent(objectName)}`;
+}
+
+/** Read a private Cloud Storage object for same-origin asset delivery. */
+export async function readGcsObject(objectName) {
+  const bucket = configuredBucket();
+  if (!bucket) throw new Error("GCS_BUCKET is not configured");
+  const token = await accessToken();
+  const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(objectName)}?alt=media`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    const error = new Error(`Cloud Storage read failed (${response.status}): ${detail.slice(0, 300)}`);
+    error.status = response.status;
+    throw error;
+  }
+  return {
+    body: Buffer.from(await response.arrayBuffer()),
+    contentType: response.headers.get("content-type") || "application/octet-stream",
+  };
+}
