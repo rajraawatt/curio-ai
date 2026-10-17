@@ -71,6 +71,8 @@ export function LessonClipPlayer({
   onSurfaceClick,
   onTime,
   playbackRef,
+  onEnded,
+  onPlayingChange,
   preload = "metadata",
   deferSrc = false,
   hug = false,
@@ -247,7 +249,7 @@ export function LessonClipPlayer({
       stopCaptionVoice(video);
       video.pause();
     }
-  }, [playing]);
+  }, [playing, src]);
 
   return (
     <figure className={`m-0 font-[inherit] ${wide ? "h-full w-full" : "h-full"}`}>
@@ -280,6 +282,7 @@ export function LessonClipPlayer({
               stopCaptionVoice(video);
               return;
             }
+            onPlayingChange?.(true);
             logVideoPlay();
             startNextRef.current(video);
           }}
@@ -294,7 +297,10 @@ export function LessonClipPlayer({
             onTime?.(video.currentTime);
             startNextRef.current(video);
           }}
-          onEnded={(e) => setTime(e.currentTarget.duration || e.currentTarget.currentTime)}
+          onEnded={(e) => {
+            setTime(e.currentTarget.duration || e.currentTarget.currentTime);
+            onEnded?.();
+          }}
           onSeeked={(e) => {
             const video = e.currentTarget;
             const prev = time;
@@ -321,6 +327,7 @@ export function LessonClipPlayer({
           }}
           onPause={(e) => {
             const video = e.currentTarget;
+            onPlayingChange?.(false);
             if (video.ended || video.currentTime >= (video.duration || 8) - 0.2) return;
             speakingRef.current = false;
             stopCaptionVoice(video);
