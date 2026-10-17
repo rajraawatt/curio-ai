@@ -228,6 +228,7 @@ export function publicStudioSession(session) {
       title: moment.title,
       caption: moment.caption,
       seekSec: moment.seekSec ?? null,
+      durationSeconds: moment.durationSeconds || CHAPTER_SECONDS,
       clipError: moment.clipError || null,
       labels: moment.labels,
       points: moment.points || [],
