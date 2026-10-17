@@ -478,7 +478,7 @@ export function PrepareStudio({ embedded = false }) {
           useVeo,
           useTripo,
           reuseExisting: false,
-          objectCount: 2,
+          objectCount: 2, // Keep the existing 3D asset flow unchanged; chapter video generation is opt-in in the dedicated lesson pipeline.
           classId,
           subjectId,
         }),
@@ -646,7 +646,7 @@ export function PrepareStudio({ embedded = false }) {
           <div>
             <h1 className="m-0 text-[1.25rem] font-black text-[#1F2937]">Prepare assets</h1>
             <p className="mt-1 text-[0.9rem] font-bold text-[#6B7280]">
-              One lesson video (~16s): two scenes merged with a smooth fade. Each scene keeps one subject for 3D.
+              Chapter-based lessons: cinematic clips, narration, clickable timestamps, and interactive 3D assets.
             </p>
           </div>
           <a href="/" className="ml-auto font-bold text-[#7C3AED] hover:underline">
