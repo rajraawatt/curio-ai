@@ -43,7 +43,25 @@ function parseJson(text) {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start < 0 || end < start) throw new Error("Gemini plan was not JSON");
-  return JSON.parse(raw.slice(start, end + 1));
+  const candidate = raw.slice(start, end + 1);
+  try {
+    return JSON.parse(candidate);
+  } catch (error) {
+    // Retry with a targeted repair prompt in generateStudioLesson; preserve the original parser error.
+    error.message = "Gemini returned malformed lesson JSON: " + error.message;
+    throw error;
+  }
+}
+
+function compactPlanRepairPrompt(prompt, malformed) {
+  return `Return one valid JSON object only. Do not use markdown fences. Fix the previous malformed JSON for this lesson request.
+Lesson topic: ${String(prompt).slice(0, 500)}
+The object must contain topic, subject, and exactly three objects in moments. Each moment must contain id, title, caption, videoPrompt, narration, shotNarration, images, points, and labels.
+Chapter 1 shotNarration must have exactly 5 short spoken lines; chapter 2 exactly 8; chapter 3 exactly 10. Each line should take about 6-8 seconds to speak and describe its matching visual. Each moment images must contain wide and detail objects with id and prompt. Keep labels concise: at least two labels, each with id, text, and blurb. Points must be three short strings.
+Use valid JSON escaping for all quotes and newlines. No trailing commas. Do not include explanations.
+Malformed response to repair (may be truncated; use only as context):
+${String(malformed).slice(0, 9000)}
+`;
 }
 
 function parseDataUrl(dataUrl) {
@@ -464,8 +482,21 @@ export async function generateStudioLesson({ prompt, onProgress }) {
   };
 
   await emit("Planning connected lesson chapters…", 4);
-  const raw = await geminiGenerate(planPrompt(text), { json: true, maxOutputTokens: 8192, temperature: 0.4 });
-  const plan = normalizeStudioPlan(parseJson(raw), text);
+  const planRequest = planPrompt(text);
+  let raw = await geminiGenerate(planRequest, { json: true, maxOutputTokens: 8192, temperature: 0.2 });
+  let parsed;
+  try {
+    parsed = parseJson(raw);
+  } catch (parseError) {
+    await emit("Repairing the lesson plan format…", 3);
+    raw = await geminiGenerate(compactPlanRepairPrompt(text, raw), { json: true, maxOutputTokens: 8192, temperature: 0.1 });
+    try {
+      parsed = parseJson(raw);
+    } catch (retryError) {
+      throw new Error("Gemini could not return a valid lesson plan after a retry. " + retryError.message);
+    }
+  }
+  const plan = normalizeStudioPlan(parsed, text);
   session.topic = plan.topic;
   session.moments = plan.moments.map((moment) => ({
     ...moment,
