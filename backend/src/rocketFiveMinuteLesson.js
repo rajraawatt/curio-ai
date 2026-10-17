@@ -157,7 +157,7 @@ async function makeImage(chapter, index, sessionDir, emit) {
 
 
 const MOTION_SHOT_SECONDS = 8;
-const GENERATION_REVISION = 2;
+const GENERATION_REVISION = 3;
 
 function splitNarrationIntoShots(narration, shotCount) {
   const words = String(narration || "").trim().split(/\s+/).filter(Boolean);
@@ -202,8 +202,8 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
   const sessionDir = path.join(GENERATED_ROOT, "studio", "rocket-five-minute");
   const videoDir = path.join(sessionDir, "video");
   await fs.mkdir(videoDir, { recursive: true });
-  const finalPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute.mp4");
-  const posterPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute-poster.jpg");
+  const finalPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute-v3.mp4");
+  const posterPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute-v3-poster.jpg");
   const metadataPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute.json");
   const cachedFinalIsUsable = await fileExistsWithContent(finalPath, 100_000);
   if (cachedFinalIsUsable) {
@@ -250,7 +250,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
     const shotPaths = [];
     for (let shotIndex = 0; shotIndex < shotCount; shotIndex += 1) {
       const shotNumber = shotIndex + 1;
-      const motionShotPath = path.join(videoDir, "chapter-" + number + "-shot-" + shotNumber + "-v2.mp4");
+      const motionShotPath = path.join(videoDir, "chapter-" + number + "-shot-" + shotNumber + "-v3.mp4");
       if (!(await fileExistsWithContent(motionShotPath, 100_000))) {
         await emit("API call: generating unique video shot " + shotNumber + " of " + shotCount + " for chapter " + number + " — visuals are aligned to this narration segment", 8 + i * 9 + Math.round((shotIndex / shotCount) * 7));
         const imageBytes = await fs.readFile(image.imagePath);
@@ -266,12 +266,12 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
       }
       shotPaths.push(motionShotPath);
     }
-    const motionPath = path.join(videoDir, "chapter-" + number + "-motion-v2.mp4");
+    const motionPath = path.join(videoDir, "chapter-" + number + "-motion-v3.mp4");
     if (!(await fileExistsWithContent(motionPath, 100_000)) || (await fs.stat(motionPath)).mtimeMs < Math.max(...(await Promise.all(shotPaths.map((p) => fs.stat(p)))).map((st) => st.mtimeMs))) {
       await emit("Local processing: joining " + shotCount + " unique visual shots for chapter " + number, 10 + i * 9);
       await assembleMotionShots(shotPaths, motionPath);
     }
-    const clipPath = path.join(videoDir, "chapter-" + number + "-narrated-v2.mp4");
+    const clipPath = path.join(videoDir, "chapter-" + number + "-narrated-v3.mp4");
     if (!(await fileExistsWithContent(clipPath, 100_000)) || (await fs.stat(clipPath)).mtimeMs < Math.max((await fs.stat(motionPath)).mtimeMs, (await fs.stat(audioPath)).mtimeMs)) {
       await emit("Local processing: combining the complete chapter visuals with narration (no looping)", 12 + i * 9);
       await runFfmpeg(["-y", "-i", motionPath, "-i", audioPath, "-filter_complex",
@@ -292,7 +292,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
     const moment = { id: chapter.id, title: chapter.title, summary: chapter.caption, caption: chapter.caption, seekSec: startSeconds,
       points: [chapter.caption, chapter.narration.slice(0, 150)], labels: [],
       images: [{ id: "wide", kind: "wide", url: image.url, error: null, positions: {} }], narration: chapter.narration,
-      videoUrl: "/generated/studio/rocket-five-minute/video/chapter-" + number + "-narrated-v2.mp4", posterUrl: image.url, durationSeconds };
+      videoUrl: "/generated/studio/rocket-five-minute/video/chapter-" + number + "-narrated-v3.mp4", posterUrl: image.url, durationSeconds };
     moments.push(moment);
     chapters.push({ id: chapter.id, title: chapter.title, startSeconds, endSeconds, durationSeconds, videoUrl: moment.videoUrl, concepts: [chapter.caption] });
     const partialVideo = {
@@ -301,7 +301,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
       merged: true,
       chapterMode: true,
       title: "Rocket Launch Mechanics — narrated video lesson",
-      url: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute.mp4",
+      url: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute-v3.mp4",
       posterUrl: moments[0]?.posterUrl || null,
       durationSeconds: timelineSeconds,
       chapters: [...chapters],
@@ -326,7 +326,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
   finally { await fs.unlink(listPath).catch(() => {}); }
   await runFfmpeg(["-y", "-ss", "2", "-i", finalPath, "-frames:v", "1", "-update", "1", "-q:v", "3", posterPath]).catch(() => {});
   const video = { id: "studio-lesson-five-minute", merged: true, chapterMode: true, generationRevision: GENERATION_REVISION, title: "Rocket Launch Mechanics — narrated video lesson",
-    url: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute.mp4", posterUrl: moments[0]?.posterUrl || null, durationSeconds: timelineSeconds, chapters, captions: [] };
+    url: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute-v3.mp4", posterUrl: moments[0]?.posterUrl || null, durationSeconds: timelineSeconds, chapters, captions: [] };
   await emit("Lesson ready", 100);
   const result = { video, moments };
   await fs.writeFile(metadataPath, JSON.stringify(result, null, 2), "utf8");
