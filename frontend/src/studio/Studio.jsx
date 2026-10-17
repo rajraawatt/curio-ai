@@ -6,6 +6,23 @@ import { LessonClipPlayer } from "./LessonClipPlayer.jsx";
 import { savedRocketSession, studioMocks } from "./studioMock.js";
 import { clearDraft, hasLessonAssets, readDraft, readHistory, readStarred, saveDraft, savedChat, storeChat, writeHistory, writeStarred } from "./storage.js";
 
+const analyticsSessionId = globalThis.crypto?.randomUUID?.() || `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function trackAnalytics(eventType, details = {}) {
+  const event = {
+    eventId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    eventType,
+    sessionId: analyticsSessionId,
+    timestamp: new Date().toISOString(),
+    ...details,
+  };
+  fetch("/api/analytics/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(event),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 function structureRows(label) {
   return (label?.panels?.structure || [])
     .map((row) => ({
@@ -424,7 +441,7 @@ export function Studio({ mockId = "" }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Tutor failed");
-      setMessages((prev) => [...prev, { role: "assistant", text: data.answer, followUp: data.followUp }]);
+      setMessages((prev) => [...prev, { role: "assistant", text: data.answer, followUp: data.followUp }]);\n      trackAnalytics("answer_generated", { lessonId: session?.id, lessonTitle: session?.topic, chapterId: moment?.id, chapterTitle: moment?.title, videoTimestampSec: moment?.seekSec ?? momentIndex * 8, answerStatus: data.source || "generated" });
     } catch (err) {
       setMessages((prev) => [...prev, { role: "assistant", text: err.message }]);
     } finally {
