@@ -531,6 +531,8 @@ export async function generateStudioLesson({ prompt, onProgress }) {
         session.errors.push(`${moment.title}: ${err.message}`);
         await emit(`Still failed: ${moment.title}`, Math.round(stillDone));
       }
+      // Continue attempting the second reference image if one image provider request fails.
+    }
     }
   }
 
@@ -552,11 +554,23 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     const moment = session.moments[i];
     const chapterSeconds = CHAPTER_SECONDS[i] || 40;
     const shotCount = SHOTS_PER_CHAPTER[i] || 5;
-    const image = moment.images.find((item) => item.kind === "wide" && item.filePath) || moment.images.find((item) => item.filePath);
+    let image = moment.images.find((item) => item.kind === "wide" && item.filePath) || moment.images.find((item) => item.filePath);
     if (!image) {
-      moment.clipError = "A generated reference image is required before video generation.";
-      session.errors.push(moment.title + ": " + moment.clipError);
-      continue;
+      // Recover from a failed reference-still request: generate a minimal topic-specific image before failing the chapter.
+      try {
+        await emit("Retrying reference image for " + moment.title + "…", null);
+        const fallback = {
+          ...moment.images[0],
+          prompt: (plan.subject + ". " + moment.title + ". " + moment.videoPrompt + ". Scientifically accurate, clean cinematic 16:9 reference image.").slice(0, 700),
+        };
+        const saved = await writeStill(sessionDir, sessionId, i, fallback);
+        Object.assign(moment.images[0], saved, { kind: "wide", error: null });
+        image = moment.images[0];
+      } catch (retryError) {
+        moment.clipError = "Reference image generation failed: " + (retryError.message || "unknown image provider error");
+        session.errors.push(moment.title + ": " + moment.clipError);
+        throw new Error(moment.title + " could not be generated because its reference image failed twice. Check the image-generation credentials/quota. " + (retryError.message || ""));
+      }
     }
     moment.seekSec = timelineSec;
     moment.durationSeconds = chapterSeconds;
