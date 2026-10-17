@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import ffmpegPath from "ffmpeg-static";
-import { generateDiagram, geminiGenerate } from "./gcp.js";
+import { generateDiagram, geminiGenerate, generateVeoClipFromImage } from "./gcp.js";
 import { writeMergedPoster } from "./mergeLessonVideo.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -412,38 +412,6 @@ function isRocketPrompt(text) {
   return /rocket/i.test(String(text || ""));
 }
 
-async function findLatestLessonVideo(skipSessionId) {
-  const root = path.join(GENERATED_ROOT, "studio");
-  let entries = [];
-  try {
-    entries = await fs.readdir(root);
-  } catch {
-    return null;
-  }
-  const hits = [];
-  for (const id of entries) {
-    if (id === skipSessionId) continue;
-    const dir = path.join(root, id, "video");
-    let files = [];
-    try {
-      files = await fs.readdir(dir);
-    } catch {
-      continue;
-    }
-    const lesson = files.find((name) => name.startsWith("lesson-") && name.endsWith(".mp4"));
-    if (!lesson) continue;
-    const stat = await fs.stat(path.join(dir, lesson));
-    const poster = files.find((name) => name.includes("poster") && /\.(jpe?g|png)$/i.test(name));
-    hits.push({
-      url: `/generated/studio/${id}/video/${lesson}`,
-      posterUrl: poster ? `/generated/studio/${id}/video/${poster}` : null,
-      mtime: stat.mtimeMs,
-    });
-  }
-  hits.sort((a, b) => b.mtime - a.mtime);
-  return hits[0] || null;
-}
-
 async function writeStill(dir, sessionId, momentIndex, image) {
   const dataUrl = await generateDiagram(stillPrompt(image), {
     instruction: STUDIO_STILL_INSTRUCTION,
@@ -591,8 +559,16 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     errors: [],
   };
 
-  const emit = async (notice, progress) => {
-    if (onProgress) await onProgress({ notice, progress, session: publicStudioSession(session) });
+  const emit = async (notice, progress, done = false) => {
+    const payload = {
+      notice,
+      progress,
+      done,
+      updatedAt: Date.now(),
+      session: publicStudioSession(session),
+    };
+    await fs.writeFile(path.join(sessionDir, "session.json"), JSON.stringify(payload));
+    if (onProgress) await onProgress(payload);
   };
 
   await emit("Planning two connected moments…", 4);
@@ -650,27 +626,63 @@ export async function generateStudioLesson({ prompt, onProgress }) {
       durationSeconds: Math.max(session.moments.length, 1) * CLIP_SECONDS,
       captions: session.moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
     };
-    await emit("Lesson video ready", 100);
+    await emit("Lesson video ready", 100, true);
   } else {
-    await emit("Using a saved lesson video…", 70);
-    const saved = await findLatestLessonVideo(sessionId);
-    if (!saved) {
-      session.errors.push("No saved lesson video was found on disk.");
-      await emit("No saved lesson video was found.", 96);
-    } else {
+    const clipPaths = [];
+    for (let i = 0; i < session.moments.length; i += 1) {
+      const moment = session.moments[i];
+      const image = moment.images.find((item) => item.base64);
+      const clipStart = 70 + i * 12;
+      if (!image?.base64) {
+        session.errors.push(`${moment.title}: no still to animate`);
+        await emit(`Skipping video for ${moment.title}`, clipStart);
+        continue;
+      }
+      const destPath = path.join(videoDir, `clip-${i + 1}.mp4`);
+      await emit(`Creating video ${i + 1} of ${session.moments.length}…`, clipStart);
+      try {
+        await generateVeoClipFromImage({
+          prompt: `${moment.caption || moment.title}. ${STUDIO_VIDEO_STYLE}`,
+          imageBase64: image.base64,
+          mimeType: image.mimeType || "image/png",
+          destPath,
+          durationSeconds: CLIP_SECONDS,
+          generateAudio: false,
+        });
+        clipPaths.push(destPath);
+        await emit(`Video ready: ${moment.title}`, clipStart + 10);
+      } catch (err) {
+        session.errors.push(`${moment.title} video: ${err.message}`);
+        await emit(`Video failed: ${moment.title}`, clipStart + 10);
+      }
+    }
+    const lessonName = `lesson-${sessionId}.mp4`;
+    const lessonPath = path.join(videoDir, lessonName);
+    if (clipPaths.length >= 2) {
+      await emit("Joining the lesson video…", 94);
+      await mergeTwoClips(clipPaths[0], clipPaths[1], lessonPath);
+    } else if (clipPaths.length === 1) {
+      await fs.copyFile(clipPaths[0], lessonPath);
+    }
+    if (clipPaths.length) {
+      const posterName = `lesson-${sessionId}-poster.jpg`;
+      const posterPath = path.join(videoDir, posterName);
+      await writeMergedPoster(lessonPath, posterPath).catch(() => {});
       session.moments.forEach((moment, index) => {
         moment.seekSec = index * CLIP_SECONDS;
       });
       session.video = {
         id: "studio-lesson",
-        merged: true,
+        merged: clipPaths.length > 1,
         title: session.topic,
-        url: saved.url,
-        posterUrl: saved.posterUrl,
-        durationSeconds: session.moments.length * CLIP_SECONDS,
+        url: `/generated/studio/${sessionId}/video/${lessonName}?t=${Date.now()}`,
+        posterUrl: `/generated/studio/${sessionId}/video/${posterName}?t=${Date.now()}`,
+        durationSeconds: clipPaths.length * CLIP_SECONDS,
         captions: session.moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
       };
-      await emit("Lesson video ready", 100);
+      await emit("Lesson video ready", 100, true);
+    } else {
+      await emit("The lesson video could not be created.", 100, true);
     }
   }
 
