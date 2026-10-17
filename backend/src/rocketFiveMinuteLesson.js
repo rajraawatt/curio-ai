@@ -108,7 +108,7 @@ async function mediaDurationSeconds(filePath) {
     child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
     child.on("error", reject);
     child.on("close", (code) => {
-      const match = stderr.match(/Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)/);
+      const match = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
       if (code !== 0 || !match) return reject(new Error("Could not read media duration for " + path.basename(filePath)));
       resolve(Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]));
     });
