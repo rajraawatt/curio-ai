@@ -155,6 +155,45 @@ async function makeImage(chapter, index, sessionDir, emit) {
   return { imagePath, url: `/generated/studio/rocket-five-minute/chapter-${index + 1}.${ext}` };
 }
 
+
+const MOTION_SHOT_SECONDS = 8;
+const GENERATION_REVISION = 2;
+
+function splitNarrationIntoShots(narration, shotCount) {
+  const sentences = String(narration || "").match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [String(narration || "")];
+  const groups = Array.from({ length: shotCount }, () => []);
+  let wordCounts = Array(shotCount).fill(0);
+  for (const sentence of sentences) {
+    const words = sentence.trim().split(/\\s+/).length;
+    let target = 0;
+    for (let i = 1; i < shotCount; i += 1) {
+      if (wordCounts[i] < wordCounts[target]) target = i;
+    }
+    groups[target].push(sentence.trim());
+    wordCounts[target] += words;
+  }
+  return groups.map((group, index) => group.join(" ") || sentences[Math.min(index, sentences.length - 1)] || narration);
+}
+
+async function assembleMotionShots(shotPaths, destPath) {
+  if (!shotPaths.length) throw new Error("No generated video shots were available");
+  const dir = path.dirname(destPath);
+  const listPath = path.join(dir, ".motion-shots-" + process.pid + "-" + Date.now() + ".txt");
+  const tmpPath = destPath + ".tmp.mp4";
+  await fs.writeFile(listPath, shotPaths.map((file) => "file '" + file.replace(/'/g, "'\\''") + "'").join("\\n"), "utf8");
+  try {
+    await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-an", "-vf",
+      "scale=" + WIDTH + ":" + HEIGHT + ":force_original_aspect_ratio=increase,crop=" + WIDTH + ":" + HEIGHT + ",fps=" + FPS + ",setsar=1,format=yuv420p",
+      "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart", tmpPath], { timeoutMs: 180_000 });
+    await fs.rename(tmpPath, destPath);
+  } catch (err) {
+    await fs.unlink(tmpPath).catch(() => {});
+    throw err;
+  } finally {
+    await fs.unlink(listPath).catch(() => {});
+  }
+}
+
 let activeBuildPromise = null;
 
 // Coalesce repeated clicks/requests while a lesson is being generated.
@@ -177,7 +216,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
   if (cachedFinalIsUsable) {
     try {
       const cachedResult = JSON.parse(await fs.readFile(metadataPath, "utf8"));
-      if (cachedResult?.video?.chapterMode === true && cachedResult?.video?.url && Array.isArray(cachedResult?.moments) && cachedResult.moments.every((moment) => moment.videoUrl && moment.durationSeconds > 0)) {
+      if (cachedResult?.video?.chapterMode === true && cachedResult?.video?.generationRevision === 2 && cachedResult?.video?.url && Array.isArray(cachedResult?.moments) && cachedResult.moments.every((moment) => moment.videoUrl && moment.durationSeconds > 0)) {
         await onProgress?.({ notice: "Cache hit: complete lesson found — no generation APIs called", progress: 100 });
         return cachedResult;
       }
@@ -212,27 +251,41 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
     } else {
       await emit("Cache hit: reusing chapter " + number + " narration audio — no TTS API call", null);
     }
-    const motionPath = path.join(videoDir, "chapter-" + number + "-veo-motion.mp4");
-    if (!(await fileExistsWithContent(motionPath, 100_000))) {
-      await emit("API call: generating chapter " + number + " motion with " + (process.env.VEO_MODEL || "veo-3.1-fast-generate-001") + " — this can take a few minutes", 8 + i * 10);
-      const imageBytes = await fs.readFile(image.imagePath);
-      const mimeType = image.imagePath.endsWith(".jpg") ? "image/jpeg" : "image/png";
-      await generateVeoClipFromImage({
-        prompt: "Create an educational aerospace documentary shot with continuous realistic motion. Topic: rocket launch mechanics. Scene: " + chapter.visual + " Chapter focus: " + chapter.title + ". Camera movement should be smooth and physically plausible. Keep the subject visible, no text, no labels, no logos, no watermark. The clip will be used as moving footage underneath a separate voice-over narration.",
-        imageBase64: imageBytes.toString("base64"), mimeType, destPath: motionPath, durationSeconds: 8, aspectRatio: "16:9", generateAudio: false
-      });
-      if (!(await fileExistsWithContent(motionPath, 100_000))) throw new Error("Veo did not produce a usable video for chapter " + number + ".");
-    } else {
-      await emit("Cache hit: reusing chapter " + number + " Veo motion video — no video generation API call", null);
+    const audioDuration = await mediaDurationSeconds(audioPath);
+    const shotCount = Math.max(1, Math.ceil(audioDuration / MOTION_SHOT_SECONDS));
+    const shotNarrations = splitNarrationIntoShots(chapter.narration, shotCount);
+    const shotPaths = [];
+    for (let shotIndex = 0; shotIndex < shotCount; shotIndex += 1) {
+      const shotNumber = shotIndex + 1;
+      const motionShotPath = path.join(videoDir, "chapter-" + number + "-shot-" + shotNumber + "-v2.mp4");
+      if (!(await fileExistsWithContent(motionShotPath, 100_000))) {
+        await emit("API call: generating unique video shot " + shotNumber + " of " + shotCount + " for chapter " + number + " — visuals are aligned to this narration segment", 8 + i * 9 + Math.round((shotIndex / shotCount) * 7));
+        const imageBytes = await fs.readFile(image.imagePath);
+        const mimeType = image.imagePath.endsWith(".jpg") ? "image/jpeg" : "image/png";
+        await generateVeoClipFromImage({
+          prompt: "Create a distinct 8-second educational aerospace documentary shot that visually illustrates this specific narration segment: \"" + shotNarrations[shotIndex] + "\". Overall chapter: " + chapter.title + ". Scene direction: " + chapter.visual + " Make this shot visually different from a generic repeated loop: use meaningful continuous action, a clear camera move, realistic physics, and a composition that supports the narration segment. The provided image is a visual reference, not a request to repeat the same motion. No text, labels, logos, or watermark. Voice-over will be added separately.",
+          imageBase64: imageBytes.toString("base64"), mimeType, destPath: motionShotPath,
+          durationSeconds: MOTION_SHOT_SECONDS, aspectRatio: "16:9", generateAudio: false
+        });
+        if (!(await fileExistsWithContent(motionShotPath, 100_000))) throw new Error("Veo did not produce a usable shot " + shotNumber + " for chapter " + number + ".");
+      } else {
+        await emit("Cache hit: reusing chapter " + number + " shot " + shotNumber + " — no video generation API call", null);
+      }
+      shotPaths.push(motionShotPath);
     }
-    const clipPath = path.join(videoDir, "chapter-" + number + "-narrated.mp4");
-    if (!(await fileExistsWithContent(clipPath, 100_000))) {
-      await emit("Local processing: FFmpeg is combining chapter " + number + " motion and narration", 12 + i * 10);
-      await runFfmpeg(["-y", "-stream_loop", "-1", "-i", motionPath, "-i", audioPath, "-filter_complex",
+    const motionPath = path.join(videoDir, "chapter-" + number + "-motion-v2.mp4");
+    if (!(await fileExistsWithContent(motionPath, 100_000)) || (await fs.stat(motionPath)).mtimeMs < Math.max(...(await Promise.all(shotPaths.map((p) => fs.stat(p)))).map((st) => st.mtimeMs))) {
+      await emit("Local processing: joining " + shotCount + " unique visual shots for chapter " + number, 10 + i * 9);
+      await assembleMotionShots(shotPaths, motionPath);
+    }
+    const clipPath = path.join(videoDir, "chapter-" + number + "-narrated-v2.mp4");
+    if (!(await fileExistsWithContent(clipPath, 100_000)) || (await fs.stat(clipPath)).mtimeMs < Math.max((await fs.stat(motionPath)).mtimeMs, (await fs.stat(audioPath)).mtimeMs)) {
+      await emit("Local processing: combining the complete chapter visuals with narration (no looping)", 12 + i * 9);
+      await runFfmpeg(["-y", "-i", motionPath, "-i", audioPath, "-filter_complex",
         "[0:v]scale=" + WIDTH + ":" + HEIGHT + ":force_original_aspect_ratio=increase,crop=" + WIDTH + ":" + HEIGHT + ",fps=" + FPS + ",setsar=1,format=yuv420p[v];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a]",
         "-map", "[v]", "-map", "[a]", "-shortest", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", clipPath], {
-          timeoutMs: 120_000,
+          timeoutMs: 180_000,
           onHeartbeat: () => emit("Still processing chapter " + number + " video locally with FFmpeg…", null)
         });
     } else {
@@ -246,11 +299,12 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
     const moment = { id: chapter.id, title: chapter.title, summary: chapter.caption, caption: chapter.caption, seekSec: startSeconds,
       points: [chapter.caption, chapter.narration.slice(0, 150)], labels: [],
       images: [{ id: "wide", kind: "wide", url: image.url, error: null, positions: {} }], narration: chapter.narration,
-      videoUrl: "/generated/studio/rocket-five-minute/video/chapter-" + number + "-narrated.mp4", posterUrl: image.url, durationSeconds };
+      videoUrl: "/generated/studio/rocket-five-minute/video/chapter-" + number + "-narrated-v2.mp4", posterUrl: image.url, durationSeconds };
     moments.push(moment);
     chapters.push({ id: chapter.id, title: chapter.title, startSeconds, endSeconds, durationSeconds, videoUrl: moment.videoUrl, concepts: [chapter.caption] });
     const partialVideo = {
       id: "studio-lesson-five-minute",
+      generationRevision: GENERATION_REVISION,
       merged: true,
       chapterMode: true,
       title: "Rocket Launch Mechanics — narrated video lesson",
@@ -278,7 +332,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
   } catch (err) { await fs.unlink(tmpPath).catch(() => {}); throw err; }
   finally { await fs.unlink(listPath).catch(() => {}); }
   await runFfmpeg(["-y", "-ss", "2", "-i", finalPath, "-frames:v", "1", "-update", "1", "-q:v", "3", posterPath]).catch(() => {});
-  const video = { id: "studio-lesson-five-minute", merged: true, chapterMode: true, title: "Rocket Launch Mechanics — narrated video lesson",
+  const video = { id: "studio-lesson-five-minute", merged: true, chapterMode: true, generationRevision: GENERATION_REVISION, title: "Rocket Launch Mechanics — narrated video lesson",
     url: "/generated/studio/rocket-five-minute/video/lesson-rocket-launch-mechanics-five-minute.mp4", posterUrl: moments[0]?.posterUrl || null, durationSeconds: timelineSeconds, chapters, captions: [] };
   await emit("Lesson ready", 100);
   const result = { video, moments };
