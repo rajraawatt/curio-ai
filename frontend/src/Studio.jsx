@@ -7,6 +7,17 @@ import { studioMocks } from "./studioMock.js";
 
 const STEP_COLORS = ["bg-[#2563eb]", "bg-[#16a34a]", "bg-[#d97706]", "bg-[#7c3aed]", "bg-[#0284c7]"];
 
+const SUBJECTS = [
+  ["Science", Atom],
+  ["Technology", Cpu],
+  ["History", Landmark],
+  ["Nature", Leaf],
+  ["Art & Design", Palette],
+  ["Space", Compass],
+  ["Film & Media", Clapperboard],
+  ["Engineering", Box],
+];
+
 const FUNCTION_ICONS = ["zap", "activity", "shield", "arrow", "radio", "layers"];
 const TABLE_COLORS = ["bg-[#1d4ed8]", "bg-[#15803d]", "bg-[#b45309]", "bg-[#6d28d9]", "bg-[#0369a1]"];
 
