@@ -515,6 +515,7 @@ export function Studio({ mockId = "" }) {
   const askRef = useRef(null);
   const playbackRef = useRef(null);
   const momentIndexRef = useRef(0);
+  const partialLessonStartedRef = useRef(false);
 
   const moment = session?.moments?.[momentIndex] || null;
   const images = moment?.images || [];
@@ -660,6 +661,7 @@ export function Studio({ mockId = "" }) {
     setError("");
     setNotice("Starting…");
     setGenerationLogs([{ time: new Date().toLocaleTimeString(), message: "Started lesson generation request." }]);
+    partialLessonStartedRef.current = false;
     setSession(null);
     setMomentIndex(0);
     setImageIndex(0);
@@ -687,6 +689,28 @@ export function Studio({ mockId = "" }) {
               setGenerationLogs((items) => [...items, { time: new Date().toLocaleTimeString(), message: data.notice }].slice(-35));
             }
             if (data.progress != null) setProgress(Math.max(0, Math.min(100, Math.round(data.progress))));
+          }
+          if (eventName === "chapter" && data.result?.video && Array.isArray(data.result.moments)) {
+            const saved = savedRocketSession();
+            setSession({
+              ...saved,
+              id: "rocket-five-minute",
+              topic: text,
+              prompt: text,
+              subtitle: "A narrated lesson with chapters arriving as they finish.",
+              video: data.result.video,
+              moments: data.result.moments,
+            });
+            if (!partialLessonStartedRef.current) {
+              partialLessonStartedRef.current = true;
+              setMomentIndex(0);
+              setImageIndex(0);
+              setFocus(null);
+              setPlaying(false);
+              setNotice("Chapter 1 is ready — play it while the remaining chapters generate.");
+            } else {
+              setNotice(`Chapter ${data.result.moments.length} is ready — you can watch it now.`);
+            }
           }
           if (eventName === "done" && data.result) result = data.result;
           if (eventName === "error") streamError = data.error || "Lesson generation failed";
@@ -1127,10 +1151,12 @@ export function Studio({ mockId = "" }) {
                     </div>
                   )}
                 </div>
-                {busy && !session?.moments?.length && (
+                {busy && (
                   <div className="flex items-center gap-2 text-sm font-bold text-white/60">
                     <Loader2 size={16} className="animate-spin" />
-                    Building the lesson
+                    {session?.moments?.length
+                      ? `Generating next chapter · ${session.moments.length} of 8 ready`
+                      : "Preparing the first chapter"}
                   </div>
                 )}
                 <ol className="m-0 grid list-none gap-1.5 p-0">
