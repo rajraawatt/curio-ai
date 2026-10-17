@@ -567,7 +567,7 @@ export async function uploadGcsObject(objectName, contents, contentType = "appli
   const payload = Buffer.isBuffer(contents) ? contents : Buffer.from(contents);
   const uploaded = await fetch(uploadUrl, {
     method: "PUT",
-    headers: { "Content-Type": contentType, "Content-Length": String(payload.length) },
+    headers: { "Content-Type": contentType },
     body: payload,
   });
   if (!uploaded.ok) {
