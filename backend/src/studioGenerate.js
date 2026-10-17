@@ -3,17 +3,17 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import ffmpegPath from "ffmpeg-static";
-import { generateDiagram, generateVeoClipFromImage, geminiGenerate } from "./gcp.js";
+import { generateDiagram, generateVeoClipFromImage, geminiGenerate, synthesizeSpeech } from "./gcp.js";
 import { writeMergedPoster } from "./mergeLessonVideo.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GENERATED_ROOT = path.join(__dirname, "../../frontend/public/generated");
 
-export const STUDIO_MOMENTS = 2;
+export const STUDIO_MOMENTS = 3;
 export const STUDIO_IMAGES = 2;
 const CLIP_SECONDS = 8;
-const CLIPS_PER_CHAPTER = 5;
-const CHAPTER_SECONDS = CLIP_SECONDS * CLIPS_PER_CHAPTER;
+const SHOTS_PER_CHAPTER = [5, 8, 10];
+const CHAPTER_SECONDS = SHOTS_PER_CHAPTER.map((count) => count * CLIP_SECONDS);
 const JOIN_FADE_SECONDS = 0.4;
 const IMAGE_KINDS = ["wide", "detail"];
 
@@ -98,6 +98,8 @@ export function normalizeStudioPlan(parsed, prompt) {
       title,
       caption: String(src.caption || title).slice(0, 80),
       videoPrompt: String(src.videoPrompt || `${title}. Slow obvious motion, no dialogue.`).slice(0, 400),
+      narration: String(src.narration || src.summary || `${title}. ${points.join(" ")}`).slice(0, 1200),
+      shotNarration: Array.isArray(src.shotNarration) ? src.shotNarration.map((line) => String(line || "").trim().slice(0, 260)) : [],
       images,
       labels,
       points,
@@ -164,10 +166,10 @@ function planPrompt(prompt) {
   return `You plan a short classroom lesson from one teacher prompt.
 Prompt: "${String(prompt).replace(/"/g, "'")}"
 
-Return JSON only. Plan exactly 2 connected chapters for a lesson. Each chapter will become a 40-second sequence made from five distinct 8-second shots.
+Return JSON only. Plan exactly 3 connected chapters for a complete narrated lesson lasting about 3 minutes. Chapter 1 has 5 shots (40 seconds), chapter 2 has 8 shots (64 seconds), and chapter 3 has 10 shots (80 seconds). Total target is about 184 seconds. Each shot is a distinct 8-second visual and has its own short narration line synchronized to that shot.
 Write a subject sentence that names the exact thing and the place. Both moments must use that same subject and place.
-Chapter 1 introduces and explains the topic. Chapter 2 continues the explanation and builds on chapter 1. Do not start an unrelated topic.
-Each chapter has exactly 2 reference image prompts: a wide 16:9 view and a closer 16:9 view of the same subject. Photorealistic, not a diagram. Never a square frame. The video will use five different camera/action shot prompts per chapter.
+Chapter 1 introduces the topic, chapter 2 develops the mechanism, and chapter 3 explains the consequence/application. The chapters must form one coherent lesson, not unrelated topics.
+Each chapter has exactly 2 reference image prompts: a wide 16:9 view and a closer 16:9 view of the same subject. Photorealistic, not a diagram. Never a square frame. Include shotNarration as an array of exactly 5 lines for chapter 1, 8 lines for chapter 2, and 10 lines for chapter 3. Each line should be natural spoken narration that takes about 6-8 seconds to say, explains the visual in that shot, and progresses the lesson without repeating previous lines. Include narration as a concise chapter overview.
 Each moment has 2 or 3 part labels. Every label needs a one-sentence blurb, 3 short overview lines, 3 quick facts, 3 function steps, 3 structure rows, and 2 related parts. Facts must be true for a classroom, not invented numbers. Exactly 3 short summary points.
 Captions are 8 words or fewer.
 Each video prompt is silent motion in a full 16:9 frame, with the subject filling the picture and no empty borders. Do not write a sentence for someone to read aloud. The second video prompt must continue the first, not repeat it.
@@ -181,6 +183,8 @@ Each video prompt is silent motion in a full 16:9 frame, with the subject fillin
       "title": "short title",
       "caption": "eight words max",
       "videoPrompt": "the opening motion, with no words to speak",
+      "narration": "A concise spoken explanation for this chapter.",
+      "shotNarration": ["Narration for shot 1", "Narration for shot 2", "Narration for shot 3", "Narration for shot 4", "Narration for shot 5"],
       "images": [
         { "id": "wide", "prompt": "wide view of the subject in that place" },
         { "id": "detail", "prompt": "closer view of the same subject in that place" }
@@ -228,7 +232,8 @@ export function publicStudioSession(session) {
       title: moment.title,
       caption: moment.caption,
       seekSec: moment.seekSec ?? null,
-      durationSeconds: moment.durationSeconds || CHAPTER_SECONDS,
+      durationSeconds: moment.durationSeconds || CHAPTER_SECONDS[session.moments.indexOf(moment)] || 40,
+      narration: moment.narration || "",
       clipError: moment.clipError || null,
       labels: moment.labels,
       points: moment.points || [],
@@ -499,45 +504,68 @@ export async function generateStudioLesson({ prompt, onProgress }) {
   }
 
   const clipPaths = [];
-  const chapterStarts = [];
   const shotDirections = [
     "Wide establishing shot; slow push-in to establish the setting and subject.",
     "Medium shot; track smoothly alongside the main action.",
     "Close-up of the key mechanism or important detail; subtle camera movement.",
     "Three-quarter angle; show the subject interacting with its environment.",
-    "Wide closing shot; reveal the result of the action and lead naturally into the next chapter.",
+    "Wide closing shot; reveal the result and lead naturally into the next shot.",
+    "Overhead or cross-sectional view that clarifies the process.",
+    "Follow the movement of the key object or signal.",
+    "Show the cause and effect in one continuous visual action.",
+    "Shift focus from the main subject to a relevant detail.",
+    "Conclude with a clear visual result, not a title card.",
   ];
+  let timelineSec = 0;
   for (let i = 0; i < session.moments.length; i += 1) {
     const moment = session.moments[i];
+    const chapterSeconds = CHAPTER_SECONDS[i] || 40;
+    const shotCount = SHOTS_PER_CHAPTER[i] || 5;
     const image = moment.images.find((item) => item.kind === "wide" && item.filePath) || moment.images.find((item) => item.filePath);
     if (!image) {
       moment.clipError = "A generated reference image is required before video generation.";
       session.errors.push(moment.title + ": " + moment.clipError);
       continue;
     }
-    chapterStarts[i] = clipPaths.length * CLIP_SECONDS;
-    moment.seekSec = chapterStarts[i];
-    moment.durationSeconds = CHAPTER_SECONDS;
+    moment.seekSec = timelineSec;
+    moment.durationSeconds = chapterSeconds;
     moment.shots = [];
-    for (let shot = 0; shot < CLIPS_PER_CHAPTER; shot += 1) {
+    const narrationLines = Array.from({ length: shotCount }, (_, shot) =>
+      moment.shotNarration[shot] || (shot === 0 ? moment.narration : "")
+    );
+    if (narrationLines.some((line) => !line.trim())) {
+      throw new Error("The lesson plan is missing synchronized narration for " + moment.title + ". Please try generating the lesson again.");
+    }
+    for (let shot = 0; shot < shotCount; shot += 1) {
       const clipPath = path.join(videoDir, "chapter-" + (i + 1) + "-shot-" + (shot + 1) + "-veo.mp4");
-      await emit("Generating shot " + (shot + 1) + " of " + CLIPS_PER_CHAPTER + " for " + moment.title + "…", 48 + Math.round(((i * CLIPS_PER_CHAPTER + shot) / (session.moments.length * CLIPS_PER_CHAPTER)) * 35));
-      try {
-        await generateVeoClipFromImage({
-          prompt: STUDIO_VIDEO_STYLE + " Topic: " + text + ". Chapter: " + moment.title + ". Scene: " + moment.videoPrompt + ". Shot direction: " + shotDirections[shot] + " Keep visual continuity with this chapter, but vary framing and visible action between shots. Generate visuals only for this requested topic; do not show rockets unless the topic is about rockets.",
-          imageBase64: image.base64,
-          mimeType: image.mimeType || "image/png",
-          destPath: clipPath,
-          durationSeconds: CLIP_SECONDS,
-          generateAudio: false,
-          aspectRatio: "16:9",
-        });
-        clipPaths.push(clipPath);
-        moment.shots.push({ seekSec: (clipPaths.length - 1) * CLIP_SECONDS, durationSeconds: CLIP_SECONDS });
-      } catch (err) {
-        session.errors.push(moment.title + " shot " + (shot + 1) + ": " + (err.message || "Veo video generation failed"));
-        await emit("Shot " + (shot + 1) + " failed for " + moment.title + ": " + (err.message || "Veo error"), null);
-      }
+      const audioPath = path.join(videoDir, "chapter-" + (i + 1) + "-shot-" + (shot + 1) + "-narration.mp3");
+      const narratedClipPath = path.join(videoDir, "chapter-" + (i + 1) + "-shot-" + (shot + 1) + "-narrated.mp4");
+      const absoluteProgress = (i + shot / shotCount) / session.moments.length;
+      await emit("Generating chapter " + (i + 1) + ", shot " + (shot + 1) + " of " + shotCount + "…", 48 + Math.round(absoluteProgress * 35));
+      await generateVeoClipFromImage({
+        prompt: STUDIO_VIDEO_STYLE + " Topic: " + text + ". Chapter: " + moment.title + ". Scene: " + moment.videoPrompt + ". Shot direction: " + shotDirections[shot % shotDirections.length] + " Create a distinct shot with new visible motion, not a still frame and not a replay of an earlier shot. Keep visual continuity but vary framing and action. No speech or text in the generated video; narration is added separately.",
+        imageBase64: image.base64,
+        mimeType: image.mimeType || "image/png",
+        destPath: clipPath,
+        durationSeconds: CLIP_SECONDS,
+        generateAudio: false,
+        aspectRatio: "16:9",
+      });
+      const audio = await synthesizeSpeech(narrationLines[shot], "en", "11-14");
+      if (!audio) throw new Error("Narration requires Google Cloud Text-to-Speech. Configure GOOGLE_CLOUD_PROJECT and application credentials.");
+      await fs.writeFile(audioPath, audio);
+      await runFfmpeg([
+        "-y", "-i", clipPath, "-i", audioPath,
+        "-filter_complex",
+        "[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,format=yuv420p[v];[1:a]aresample=48000,apad,atrim=0:8,asetpts=PTS-STARTPTS[a]",
+        "-map", "[v]", "-map", "[a]",
+        "-t", String(CLIP_SECONDS), "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000", "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart", narratedClipPath,
+      ]);
+      clipPaths.push(narratedClipPath);
+      moment.shots.push({ seekSec: timelineSec, durationSeconds: CLIP_SECONDS, narration: narrationLines[shot] });
+      timelineSec += CLIP_SECONDS;
     }
   }
   if (!clipPaths.length) throw new Error("Veo did not generate a video for this topic. Check Google Cloud Veo access and try again.");
@@ -545,8 +573,8 @@ export async function generateStudioLesson({ prompt, onProgress }) {
   await concatClips(clipPaths, finalPath);
   const posterPath = path.join(videoDir, "lesson-" + sessionId + "-poster.jpg");
   await runFfmpeg(["-y", "-ss", "1", "-i", finalPath, "-frames:v", "1", "-update", "1", "-q:v", "3", posterPath]).catch(() => {});
-  session.moments.forEach((moment, index) => { if (moment.seekSec == null) moment.seekSec = index * CHAPTER_SECONDS; });
-  session.video = { id: "studio-lesson", merged: true, title: session.topic, url: "/generated/studio/" + sessionId + "/video/lesson-" + sessionId + ".mp4", posterUrl: "/generated/studio/" + sessionId + "/video/lesson-" + sessionId + "-poster.jpg", durationSeconds: clipPaths.length * CLIP_SECONDS, captions: session.moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })) };
+  session.moments.forEach((moment, index) => { if (moment.seekSec == null) moment.seekSec = CHAPTER_SECONDS.slice(0, index).reduce((sum, seconds) => sum + seconds, 0); });
+  session.video = { id: "studio-lesson", merged: true, title: session.topic, url: "/generated/studio/" + sessionId + "/video/lesson-" + sessionId + ".mp4", posterUrl: "/generated/studio/" + sessionId + "/video/lesson-" + sessionId + "-poster.jpg", durationSeconds: timelineSec, chapterMode: false, captions: session.moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })) };
   await emit("Fresh Veo video generated for this topic", 100);
   return publicStudioSession(session);
 }
