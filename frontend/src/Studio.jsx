@@ -18,6 +18,22 @@ const SUBJECTS = [
   ["Engineering", Box],
 ];
 
+const IDEAS = [
+  "How does the human brain work?",
+  "Explain how the internet works",
+  "The history of ancient Egypt",
+  "How do plants turn sunlight into energy?",
+  "How airplanes fly",
+  "The science of black holes",
+];
+
+const TEMPLATES = studioMocks.map((mock) => ({
+  title: mock.name,
+  image: mock.image,
+  tags: ["Interactive lesson", "Video"],
+  prompt: mock.session?.prompt || mock.name,
+}));
+
 const FUNCTION_ICONS = ["zap", "activity", "shield", "arrow", "radio", "layers"];
 const TABLE_COLORS = ["bg-[#1d4ed8]", "bg-[#15803d]", "bg-[#b45309]", "bg-[#6d28d9]", "bg-[#0369a1]"];
 
