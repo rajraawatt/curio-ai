@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import ffmpegPath from "ffmpeg-static";
-import { generateDiagram, geminiGenerate } from "./gcp.js";
+import { generateDiagram, generateVeoClipFromImage, geminiGenerate } from "./gcp.js";
 import { writeMergedPoster } from "./mergeLessonVideo.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -402,48 +402,6 @@ function stillPrompt(image) {
   return `${image.prompt}. Wide 16:9 frame, edge to edge. Same subject as the rest of this lesson.`;
 }
 
-const ROCKET_TOPIC = "Rocket Launch Mechanics";
-const ROCKET_VIDEO = {
-  url: "/generated/studio/1791914535838/video/lesson-1791914535838.mp4",
-  posterUrl: "/generated/studio/1791914535838/video/lesson-1791914535838-poster.jpg",
-};
-
-function isRocketPrompt(text) {
-  return /rocket/i.test(String(text || ""));
-}
-
-async function findLatestLessonVideo(skipSessionId) {
-  const root = path.join(GENERATED_ROOT, "studio");
-  let entries = [];
-  try {
-    entries = await fs.readdir(root);
-  } catch {
-    return null;
-  }
-  const hits = [];
-  for (const id of entries) {
-    if (id === skipSessionId) continue;
-    const dir = path.join(root, id, "video");
-    let files = [];
-    try {
-      files = await fs.readdir(dir);
-    } catch {
-      continue;
-    }
-    const lesson = files.find((name) => name.startsWith("lesson-") && name.endsWith(".mp4"));
-    if (!lesson) continue;
-    const stat = await fs.stat(path.join(dir, lesson));
-    const poster = files.find((name) => name.includes("poster") && /\.(jpe?g|png)$/i.test(name));
-    hits.push({
-      url: `/generated/studio/${id}/video/${lesson}`,
-      posterUrl: poster ? `/generated/studio/${id}/video/${poster}` : null,
-      mtime: stat.mtimeMs,
-    });
-  }
-  hits.sort((a, b) => b.mtime - a.mtime);
-  return hits[0] || null;
-}
-
 async function writeStill(dir, sessionId, momentIndex, image) {
   const dataUrl = await generateDiagram(stillPrompt(image), {
     instruction: STUDIO_STILL_INSTRUCTION,
@@ -460,103 +418,6 @@ async function writeStill(dir, sessionId, momentIndex, image) {
     mimeType,
     base64,
     url: `/generated/studio/${sessionId}/${name}?t=${stamp}`,
-  };
-}
-
-function savedRocketSession() {
-  const base = "/generated/studio/1791914535838";
-  const still = (moment) => ({
-    id: "detail",
-    kind: "detail",
-    url: `${base}/moment-${moment}-image-detail.png`,
-    error: null,
-  });
-  const moments = [
-    {
-      id: "moment_1",
-      title: "Ignition and Liftoff",
-      caption: "The engines push against the pad",
-      seekSec: 0,
-      points: [
-        "Fuel and oxidizer meet in the combustion chamber.",
-        "Hot gas leaves through the nozzle at high speed.",
-        "That downward push lifts the rocket.",
-      ],
-      labels: [
-        {
-          id: "combustion_chamber",
-          text: "Combustion Chamber",
-          blurb: "The combustion chamber is where fuel and oxidizer burn and turn into hot, high-pressure gas.",
-          facts: [
-            ["Function", "Burns the propellant"],
-            ["Material", "Strong metal chamber"],
-            ["Purpose", "Builds the pressure that becomes thrust"],
-          ],
-        },
-        {
-          id: "nozzle",
-          text: "Nozzle",
-          blurb: "The nozzle speeds the exhaust up and points the push downward.",
-          facts: [
-            ["Function", "Speeds up the exhaust"],
-            ["Material", "Heat-resistant bell"],
-            ["Purpose", "Turns chamber pressure into lift"],
-          ],
-        },
-      ],
-      images: [still(1)],
-    },
-    {
-      id: "moment_2",
-      title: "Thrust builds",
-      caption: "The plume drives the rocket up",
-      seekSec: 8,
-      points: [
-        "The propellant feed system keeps the engine supplied.",
-        "The exhaust plume is the visible result of the burn.",
-        "As the plume stays strong, the rocket climbs.",
-      ],
-      labels: [
-        {
-          id: "feed_system",
-          text: "Propellant Feed",
-          blurb: "Pumps and pipes deliver fuel and oxidizer to the engine.",
-          facts: [
-            ["Function", "Feeds the chamber"],
-            ["Material", "Pumps and pipes"],
-            ["Purpose", "Keeps the burn going"],
-          ],
-        },
-        {
-          id: "exhaust_plume",
-          text: "Exhaust Plume",
-          blurb: "The bright stream of gas shooting out of the nozzle.",
-          facts: [
-            ["Function", "Leaves the nozzle at high speed"],
-            ["Material", "Burned propellant"],
-            ["Purpose", "Pushes the rocket upward"],
-          ],
-        },
-      ],
-      images: [still(2)],
-    },
-  ];
-  return {
-    id: "rocket-saved",
-    topic: ROCKET_TOPIC,
-    subtitle: "Watch the engines light and the exhaust push the rocket up.",
-    prompt: ROCKET_TOPIC,
-    moments,
-    errors: [],
-    video: {
-      id: "studio-lesson",
-      merged: true,
-      title: ROCKET_TOPIC,
-      url: ROCKET_VIDEO.url,
-      posterUrl: ROCKET_VIDEO.posterUrl,
-      durationSeconds: 16,
-      captions: moments.map((moment) => ({ atSec: moment.seekSec, text: moment.caption })),
-    },
   };
 }
 
