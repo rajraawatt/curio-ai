@@ -284,7 +284,10 @@ app.post("/api/studio/rocket-five-minute", async (_req, res) => {
   try {
     send("status", { notice: "Starting the five-minute Rocket Launch Mechanics lesson", progress: 1 });
     const result = await buildRocketFiveMinuteLesson({
-      onProgress: async ({ notice, progress }) => send("status", { notice, progress })
+      onProgress: async ({ notice, progress, partialResult }) => {
+        send("status", { notice, progress });
+        if (partialResult) send("chapter", { result: partialResult });
+      }
     });
     send("done", { ok: true, result });
   } catch (err) {
