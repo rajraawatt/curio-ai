@@ -157,7 +157,7 @@ async function makeImage(chapter, index, sessionDir, emit) {
 
 
 const MOTION_SHOT_SECONDS = 8;
-const GENERATION_REVISION = 3;
+const GENERATION_REVISION = 4;
 
 function splitNarrationIntoShots(narration, shotCount) {
   const words = String(narration || "").trim().split(/\s+/).filter(Boolean);
@@ -205,11 +205,18 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress, forceRegenerate = f
   const finalPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute-v3.mp4");
   const posterPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute-v3-poster.jpg");
   const metadataPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute.json");
+  if (forceRegenerate) {
+    await onProgress?.({ notice: "Clearing cached Rocket video files before fresh generation…", progress: 2 });
+    const cachedFiles = await fs.readdir(videoDir).catch(() => []);
+    for (const file of cachedFiles) {
+      if (/\\.(mp4|json|jpg|png|txt)$/i.test(file)) await fs.unlink(path.join(videoDir, file)).catch(() => {});
+    }
+  }
   const cachedFinalIsUsable = await fileExistsWithContent(finalPath, 100_000);
   if (cachedFinalIsUsable && !forceRegenerate) {
     try {
       const cachedResult = JSON.parse(await fs.readFile(metadataPath, "utf8"));
-      if (cachedResult?.video?.chapterMode === true && cachedResult?.video?.generationRevision === 2 && cachedResult?.video?.url && Array.isArray(cachedResult?.moments) && cachedResult.moments.every((moment) => moment.videoUrl && moment.durationSeconds > 0)) {
+      if (cachedResult?.video?.chapterMode === true && cachedResult?.video?.generationRevision === GENERATION_REVISION && cachedResult?.video?.url && Array.isArray(cachedResult?.moments) && cachedResult.moments.every((moment) => moment.videoUrl && moment.durationSeconds > 0)) {
         await onProgress?.({ notice: "Cache hit: complete lesson found — no generation APIs called", progress: 100 });
         return cachedResult;
       }
@@ -256,7 +263,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress, forceRegenerate = f
         const imageBytes = await fs.readFile(image.imagePath);
         const mimeType = image.imagePath.endsWith(".jpg") ? "image/jpeg" : "image/png";
         await generateVeoClipFromImage({
-          prompt: "Create a distinct 8-second educational aerospace documentary shot that visually illustrates this specific narration segment: \"" + shotNarrations[shotIndex] + "\". Overall chapter: " + chapter.title + ". Scene direction: " + chapter.visual + " Make this shot visually different from a generic repeated loop: use meaningful continuous action, a clear camera move, realistic physics, and a composition that supports the narration segment. The provided image is a visual reference, not a request to repeat the same motion. No text, labels, logos, or watermark. Voice-over will be added separately.",
+          prompt: "Create a distinct, non-looping 8-second educational aerospace documentary shot that visually illustrates ONLY this specific narration segment: \"" + shotNarrations[shotIndex] + "\". Overall chapter: " + chapter.title + ". Scene direction: " + chapter.visual + " Show a new visual beat and different composition from adjacent shots. Use meaningful physical action and camera movement. Do not create a static image, boomerang, repeated action, or looping sequence. The shot is one segment in a longer continuous chapter and must have a visually coherent beginning and end. The provided image is a visual reference, not a request to repeat the same motion. No text, labels, logos, or watermark. Voice-over will be added separately.",
           imageBase64: imageBytes.toString("base64"), mimeType, destPath: motionShotPath,
           durationSeconds: MOTION_SHOT_SECONDS, aspectRatio: "16:9", generateAudio: false
         });
