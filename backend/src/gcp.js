@@ -164,97 +164,89 @@ export async function geminiGenerateFromImage(
   });
 }
 
-function extractInlineImage(data) {
+function imageModel() {
+  const configured = String(process.env.IMAGEN_MODEL || "").trim();
+  if (!configured || configured.startsWith("imagen-") || configured === "gemini-2.5-flash") {
+    return "gemini-2.5-flash-image";
+  }
+  return configured;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function busyWaitMs(attempt) {
+  const base = Math.min(60000, 4000 * 2 ** attempt);
+  return base + Math.floor(Math.random() * 2000);
+}
+
+function inlineImage(data) {
   const parts = data?.candidates?.[0]?.content?.parts || [];
   for (const part of parts) {
     const inline = part.inlineData || part.inline_data;
     if (inline?.data) {
-      return {
-        mime: inline.mimeType || inline.mime_type || "image/png",
-        data: inline.data,
-      };
+      return { mime: inline.mimeType || inline.mime_type || "image/png", data: inline.data };
     }
   }
   return null;
 }
 
-export async function generateDiagram(prompt, { instruction, aspectRatio } = {}) {
-  if (!projectId() && !apiKey()) {
-    throw new Error("Image generation needs Vertex AI or a Gemini API key");
+export async function generateDiagram(prompt, { instruction, aspectRatio, onStatus } = {}) {
+  if (!projectId()) {
+    throw new Error("Image generation needs GOOGLE_CLOUD_PROJECT and Application Default Credentials");
   }
-  const model = process.env.IMAGEN_MODEL || "gemini-2.5-flash-image";
+  const model = imageModel();
   const lead =
     instruction ||
     "Generate one classroom still. A student should be able to name the single subject. Plain light background, centered, uncluttered, no text, no watermark, no labels.";
-  const text = `${lead} ${prompt}`;
-  const buildBody = (useAspect) => {
-    const generationConfig = {
-      responseModalities: ["TEXT", "IMAGE"],
-      candidateCount: 1,
-    };
-    if (useAspect && aspectRatio) generationConfig.imageConfig = { aspectRatio };
-    return {
-      contents: [{ role: "user", parts: [{ text }] }],
-      generationConfig,
-    };
-  };
+  const text = `${lead} ${prompt}`.slice(0, 2000);
+  const url = `https://aiplatform.googleapis.com/v1/projects/${projectId()}/locations/global/publishers/google/models/${model}:generateContent`;
+  let lastError = "The image model returned no image";
 
-  let lastError = "";
-  // Image models on Vertex often require the global endpoint.
-  const attempts = projectId()
-    ? [
-        { kind: "vertex", loc: "global" },
-        { kind: "vertex", loc: location() },
-      ]
-    : [{ kind: "apiKey" }];
-
-  for (const attempt of attempts) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     const passes = aspectRatio ? [true, false] : [false];
-    let res;
-    let data;
     for (const useAspect of passes) {
-      const body = buildBody(useAspect);
-      if (attempt.kind === "vertex") {
-        const host =
-          attempt.loc === "global"
-            ? "https://aiplatform.googleapis.com"
-            : `https://${attempt.loc}-aiplatform.googleapis.com`;
-        const url = `${host}/v1/projects/${projectId()}/locations/${attempt.loc}/publishers/google/models/${model}:generateContent`;
-        const token = await accessToken();
-        res = await fetch(url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        });
-      } else {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey()}`;
-        res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+      const generationConfig = {
+        responseModalities: ["TEXT", "IMAGE"],
+        candidateCount: 1,
+      };
+      if (useAspect && aspectRatio) generationConfig.imageConfig = { aspectRatio };
+      const token = await accessToken();
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text }] }],
+          generationConfig,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        lastError = data?.error?.message || `Image generation failed (${res.status})`;
+        const busy = res.status === 429 || /exhausted|quota|resource/i.test(lastError);
+        if (busy) {
+          onStatus?.({ attempt: attempt + 1, status: res.status, message: lastError });
+          if (attempt < 7) await sleep(busyWaitMs(attempt));
+          break;
+        }
+        if (useAspect && /aspect|imageConfig|unknown name/i.test(lastError)) continue;
+        throw new Error(lastError);
       }
-      data = await res.json().catch(() => ({}));
-      if (res.ok) break;
-      lastError = data?.error?.message || `Image generation failed (${res.status}) @ ${attempt.loc || "apiKey"}`;
-      const aspectRejected = useAspect && /aspect|imageConfig|unknown name/i.test(lastError);
-      if (!aspectRejected) break;
+      const image = inlineImage(data);
+      if (image) {
+        onStatus?.({ attempt: attempt + 1, status: 200, message: "image" });
+        return `data:${image.mime};base64,${image.data}`;
+      }
+      const finish = data?.candidates?.[0]?.finishReason || data?.candidates?.[0]?.finish_reason;
+      const block = data?.promptFeedback?.blockReason || data?.promptFeedback?.block_reason;
+      throw new Error(`The image model returned no image${finish ? ` (finish=${finish})` : ""}${block ? ` (blocked=${block})` : ""}`);
     }
-
-    if (!res.ok) continue;
-
-    const image = extractInlineImage(data);
-    if (image) return `data:${image.mime};base64,${image.data}`;
-
-    const finish = data?.candidates?.[0]?.finishReason || data?.candidates?.[0]?.finish_reason;
-    const block = data?.promptFeedback?.blockReason || data?.promptFeedback?.block_reason;
-    lastError = `The image model returned no image${finish ? ` (finish=${finish})` : ""}${block ? ` (blocked=${block})` : ""} @ ${attempt.loc || "apiKey"}`;
   }
-
-  throw new Error(lastError || "The image model returned no image");
+  throw new Error(lastError);
 }
 
 const LECTURE_VOICE = {
@@ -307,6 +299,8 @@ export async function startVeoGeneration({
   prompt,
   imageBase64 = null,
   mimeType = "image/png",
+  lastImageBase64 = null,
+  lastMimeType = "image/png",
   durationSeconds = 8,
   aspectRatio = "16:9",
   resolution = null,
@@ -323,6 +317,12 @@ export async function startVeoGeneration({
     instance.image = {
       bytesBase64Encoded: imageBase64,
       mimeType: mimeType || "image/png",
+    };
+  }
+  if (lastImageBase64) {
+    instance.lastFrame = {
+      bytesBase64Encoded: lastImageBase64,
+      mimeType: lastMimeType || mimeType || "image/png",
     };
   }
 
@@ -499,6 +499,8 @@ export async function generateVeoClipFromImage({
   prompt,
   imageBase64,
   mimeType = "image/png",
+  lastImageBase64 = null,
+  lastMimeType = "image/png",
   destPath,
   durationSeconds = 8,
   generateAudio = true,
@@ -509,6 +511,8 @@ export async function generateVeoClipFromImage({
     prompt,
     imageBase64,
     mimeType,
+    lastImageBase64,
+    lastMimeType,
     durationSeconds,
     generateAudio,
     aspectRatio,
@@ -525,7 +529,7 @@ export function healthInfo(extra = {}) {
     auth: authSource(),
     location: location(),
     model: geminiModel(),
-    imagen: process.env.IMAGEN_MODEL || "gemini-2.5-flash-image",
+    imagen: imageModel(),
     veo: process.env.VEO_MODEL || "veo-3.1-fast-generate-001",
     tts: Boolean(projectId()),
     bucket: process.env.GCS_BUCKET || null,
