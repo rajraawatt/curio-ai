@@ -7,12 +7,9 @@ import { generateDiagram, generateVeoClipFromImage, synthesizeSpeech } from "./g
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GENERATED_ROOT = path.join(__dirname, "../../frontend/public/generated");
-const SOURCE_VIDEO = path.join(GENERATED_ROOT, "studio/1791914535838/video/lesson-1791914535838.mp4");
-const INTRO_SECONDS = 16;
 const WIDTH = 1280;
 const HEIGHT = 720;
 const FPS = 24;
-const INTRO_NARRATION = "Here is our starting point: a launch vehicle ready to leave Earth. Over the next five minutes, we will trace the forces and systems that make that possible, from the propellant tanks to the engine nozzle, liftoff, and the path toward orbit.";
 
 const CHAPTERS = [
   {
@@ -211,6 +208,7 @@ async function buildRocketFiveMinuteLessonOnce({ onProgress } = {}) {
   for (let i = 0; i < CHAPTERS.length; i += 1) {
     const chapter = CHAPTERS[i];
     const number = i + 1;
+    await emit("Preparing the visual for chapter " + number + " of " + CHAPTERS.length + "…", 3 + i * 10);
     const image = await makeImage(chapter, i, sessionDir);
     const audioPath = path.join(sessionDir, "chapter-" + number + ".mp3");
     if (!(await fileExistsWithContent(audioPath))) {
