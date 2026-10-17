@@ -628,14 +628,16 @@ export function Studio({ mockId = "" }) {
         throw new Error(data.error || `Lesson generation failed (${res.status})`);
       }
       let result = null;
+      let streamError = "";
       await readStudioStream(res, (eventName, data) => {
         if (eventName === "status") {
           if (data.notice) setNotice(data.notice);
           if (data.progress != null) setProgress(Math.max(0, Math.min(100, Math.round(data.progress))));
         }
         if (eventName === "done" && data.result) result = data.result;
-        if (eventName === "error") throw new Error(data.error || "Lesson generation failed");
+        if (eventName === "error") streamError = data.error || "Lesson generation failed";
       });
+      if (streamError) throw new Error(streamError);
       if (!result?.video || !Array.isArray(result.moments)) {
         throw new Error("The server finished without returning a lesson video.");
       }
