@@ -100,7 +100,7 @@ async function fileExistsWithContent(filePath, minBytes = 1024) {
 
 async function mediaDurationSeconds(filePath) {
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpegPath, ["-i", filePath, "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(ffmpegPath, ["-i", filePath, "-frames:v", "1", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
     child.on("error", reject);
