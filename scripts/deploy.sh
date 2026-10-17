@@ -22,7 +22,10 @@ gcloud services enable \
   --project "$PROJECT"
 
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
-SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+SERVICE_ACCOUNT="$(gcloud run services describe curio --project "$PROJECT" --region "$REGION" --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)"
+if [[ -z "$SERVICE_ACCOUNT" ]]; then
+  SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+fi
 BUCKET="${GCS_BUCKET:-curio-assets-${PROJECT}}"
 
 # Keep generated lesson media in durable Cloud Storage, not the container filesystem.
