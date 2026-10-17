@@ -137,31 +137,6 @@ async function makeImage(chapter, index, sessionDir) {
   return { imagePath, url: `/generated/studio/rocket-five-minute/chapter-${index + 1}.${ext}` };
 }
 
-async function normalizeIntro(source, output, narrationPath) {
-  await runFfmpeg([
-    "-y", "-i", source,
-    "-i", narrationPath,
-    "-filter_complex",
-    `[0:v]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},setsar=1,fps=${FPS},format=yuv420p,trim=duration=${INTRO_SECONDS},setpts=PTS-STARTPTS[v];[1:a]aresample=48000,apad[a]`,
-    "-map", "[v]", "-map", "[a]", "-t", String(INTRO_SECONDS),
-    "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
-    "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
-    "-movflags", "+faststart", output
-  ]);
-}
-
-async function renderChapter(imagePath, audioPath, output, durationSeconds) {
-  await runFfmpeg([
-    "-y", "-loop", "1", "-framerate", String(FPS), "-i", imagePath, "-i", audioPath,
-    "-filter_complex",
-    `[0:v]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='min(zoom+0.00018,1.07)':d=1:s=${WIDTH}x${HEIGHT}:fps=${FPS},setsar=1,format=yuv420p[v];[1:a]atempo=1.1,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,apad[a]`,
-    "-map", "[v]", "-map", "[a]", "-t", String(durationSeconds),
-    "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
-    "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2",
-    "-movflags", "+faststart", output
-  ]);
-}
-
 let activeBuildPromise = null;
 
 // Coalesce repeated clicks/requests while a lesson is being generated.
