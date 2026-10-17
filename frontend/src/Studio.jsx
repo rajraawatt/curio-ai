@@ -632,6 +632,21 @@ export function Studio({ mockId = "" }) {
     const text = String(textOverride || prompt).trim();
     if (textOverride) setPrompt(textOverride);
     if (!text || busy || mock) return;
+    if (/rocket/i.test(text)) {
+      const sameTopic = (value) => String(value || "").trim().toLowerCase() === text.toLowerCase();
+      const cachedLesson = (session?.video?.chapterMode && sameTopic(session.topic) ? session : null)
+        || history.find((item) => item?.video?.chapterMode && sameTopic(item.topic));
+      if (cachedLesson) {
+        setSession(cachedLesson);
+        setMomentIndex(0);
+        setImageIndex(0);
+        setPlaying(true);
+        setNotice("Reusing your saved lesson — no generation API request made.");
+        setGenerationLogs([{ time: new Date().toLocaleTimeString(), message: "Cache hit: reused the completed lesson from this browser session. No generation request made." }]);
+        setError("");
+        return;
+      }
+    }
     setLearningStarted(true);
     setWatchMode(true);
     if (window.location.pathname !== "/studio/watch") {
