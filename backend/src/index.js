@@ -59,6 +59,26 @@ app.get("/api/studio/session/:id", async (req, res) => {
   }
 });
 
+// Existing demo lessons refer to /generated/studio/<id>/... URLs.
+// In Cloud Run these files are not bundled with the frontend, so proxy those
+// legacy URLs to the matching private GCS object. Local files still work first.
+app.get(/^\/generated\/studio\/(.+)$/, async (req, res, next) => {
+  const objectName = `studio/${req.params[0]}`;
+  if (objectName.split("/").some((part) => !part || part === "." || part === "..")) {
+    return res.status(400).json({ error: "Invalid asset path" });
+  }
+  try {
+    const asset = await readGcsObject(objectName);
+    res.set("Content-Type", asset.contentType || "application/octet-stream");
+    res.set("Cache-Control", "public, max-age=3600");
+    return res.send(asset.body);
+  } catch (err) {
+    if (err.status === 404) return next();
+    console.error("[demo-asset]", objectName, err.message);
+    return res.status(502).json({ error: "Demo asset could not be loaded from Cloud Storage" });
+  }
+});
+
 app.get("/api/assets", async (req, res) => {
   const name = String(req.query?.name || "");
   // Only expose app-generated assets, never arbitrary bucket objects.
