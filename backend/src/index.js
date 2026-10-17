@@ -8,7 +8,6 @@ import { prepareCellAssets, readCellPack, MOCK_CELL_SUMMARY } from "./prepareAss
 import { lessonFromBody } from "./preparePrompt.js";
 import { askModelTutor } from "./modelTutor.js";
 import { generateStudioLesson } from "./studioGenerate.js";
-import { buildRocketFiveMinuteLesson } from "./rocketFiveMinuteLesson.js";
 import {
   getGalleryLibrary,
   getLearningForClass,
@@ -274,30 +273,6 @@ app.post("/api/prepare/assets", async (req, res) => {
   }
 });
 
-
-app.post("/api/studio/rocket-five-minute", async (req, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders?.();
-  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  try {
-    send("status", { notice: "Starting the five-minute Rocket Launch Mechanics lesson", progress: 1 });
-    const result = await buildRocketFiveMinuteLesson({
-      forceRegenerate: req.body?.forceRegenerate === true,
-      onProgress: async ({ notice, progress, partialResult }) => {
-        send("status", { notice, progress });
-        if (partialResult) send("chapter", { result: partialResult });
-      }
-    });
-    send("done", { ok: true, result });
-  } catch (err) {
-    console.error("[rocket-five-minute]", err);
-    send("error", { error: err.message || "Could not build the five-minute lesson" });
-  } finally {
-    res.end();
-  }
-});
 
 app.post("/api/studio/generate", async (req, res) => {
   const prompt = String(req.body?.prompt || "").trim();
