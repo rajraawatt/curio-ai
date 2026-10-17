@@ -492,6 +492,7 @@ export function Studio({ mockId = "" }) {
   const [error, setError] = useState("");
   const [session, setSession] = useState(() => mockSession);
   const [momentIndex, setMomentIndex] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [imageIndex, setImageIndex] = useState(0);
   const [focus, setFocus] = useState(() => (mockSession ? mockSession.moments[0].labels[0] : null));
   const [panelView, setPanelView] = useState("model");
@@ -590,7 +591,11 @@ export function Studio({ mockId = "" }) {
     setFocus(next.labels?.[0] || null);
     setMessages([]);
     setQuestion("");
-    if (seek && next.seekSec != null) playbackRef.current?.seek(next.seekSec);
+    if (session?.video?.chapterMode) {
+      setPlaying(true);
+    } else if (seek && next.seekSec != null) {
+      playbackRef.current?.seek(next.seekSec);
+    }
   }
 
   function onTime(time) {
@@ -610,6 +615,17 @@ export function Studio({ mockId = "" }) {
     }
   }
 
+  function onChapterEnded() {
+    if (!session?.video?.chapterMode) return;
+    const nextIndex = momentIndex + 1;
+    if (nextIndex < (session.moments?.length || 0)) {
+      applyMoment(nextIndex, false);
+      setPlaying(true);
+    } else {
+      setPlaying(false);
+    }
+  }
+
   async function generate(event, textOverride) {
     event?.preventDefault();
     const text = String(textOverride || prompt).trim();
@@ -623,6 +639,7 @@ export function Studio({ mockId = "" }) {
     setHistoryOpen(false);
     setPanelView("model");
     setBusy(true);
+    setPlaying(false);
     setProgress(0);
     setError("");
     setNotice("Starting…");
@@ -806,14 +823,15 @@ export function Studio({ mockId = "" }) {
   }
 
   const showWorkspace = Boolean(session) || busy || watchMode;
+  const chapterClip = session?.video?.chapterMode ? moment : null;
   const clip = session?.video?.url
     ? {
-        id: "studio-lesson",
-        merged: true,
-        title: session.topic,
-        url: session.video.url,
-        posterUrl: session.video.posterUrl,
-        durationSeconds: session.video.durationSeconds,
+        id: chapterClip?.id || "studio-lesson",
+        merged: !session.video.chapterMode,
+        title: chapterClip?.title || session.topic,
+        url: chapterClip?.videoUrl || session.video.url,
+        posterUrl: chapterClip?.posterUrl || session.video.posterUrl,
+        durationSeconds: chapterClip?.durationSeconds || session.video.durationSeconds,
         captions: session.video.captions,
         packId: "studio",
       }
@@ -1171,7 +1189,10 @@ export function Studio({ mockId = "" }) {
                   ageGroup="11-14"
                   captions
                   playbackRef={playbackRef}
-                  onTime={onTime}
+                  playing={session?.video?.chapterMode ? playing : undefined}
+                  onEnded={session?.video?.chapterMode ? onChapterEnded : undefined}
+                  onPlayingChange={session?.video?.chapterMode ? setPlaying : undefined}
+                  onTime={session?.video?.chapterMode ? undefined : onTime}
                   trackPlayback={false}
                   wide
                 />
