@@ -93,6 +93,15 @@ function parseDataUrl(dataUrl) {
   return { mimeType: match[1], base64: match[2] };
 }
 
+async function fileExistsWithContent(filePath, minBytes = 1024) {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile() && stat.size >= minBytes;
+  } catch {
+    return false;
+  }
+}
+
 async function makeImage(chapter, index, sessionDir) {
   // Reuse visuals already generated during an interrupted run, so retries do not
   // spend image quota again for completed chapters.
@@ -149,6 +158,19 @@ export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
   await fs.mkdir(videoDir, { recursive: true });
   const finalPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute.mp4");
   const posterPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute-poster.jpg");
+  const metadataPath = path.join(videoDir, "lesson-rocket-launch-mechanics-five-minute.json");
+  const cachedFinalIsUsable = await fileExistsWithContent(finalPath, 100_000);
+  if (cachedFinalIsUsable) {
+    try {
+      const cachedResult = JSON.parse(await fs.readFile(metadataPath, "utf8"));
+      if (cachedResult?.video?.url && Array.isArray(cachedResult?.moments) && Array.isArray(cachedResult?.video?.chapters)) {
+        await onProgress?.({ notice: "Using your saved five-minute lesson — no generation APIs called", progress: 100 });
+        return cachedResult;
+      }
+    } catch {
+      // Older or incomplete cache: rebuild once, reusing any existing image/audio assets below.
+    }
+  }
   const sourceExists = await fs.access(SOURCE_VIDEO).then(() => true).catch(() => false);
   const introSeconds = sourceExists ? INTRO_SECONDS : 0;
   const chapterSeconds = (TARGET_SECONDS - introSeconds) / CHAPTERS.length;
@@ -168,9 +190,14 @@ export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
     await emit("Preparing the existing Rocket Launch Mechanics footage…", 4);
     const introPath = path.join(videoDir, "rocket-intro-normalized.mp4");
     const introAudioPath = path.join(sessionDir, "rocket-intro-narration.mp3");
-    const introAudio = await synthesizeSpeech(INTRO_NARRATION, "en", "11-14", 1.1);
-    if (!introAudio?.length) throw new Error("Text-to-Speech returned no intro narration.");
-    await fs.writeFile(introAudioPath, introAudio);
+    let introAudio;
+    if (await fileExistsWithContent(introAudioPath)) {
+      introAudio = await fs.readFile(introAudioPath);
+    } else {
+      introAudio = await synthesizeSpeech(INTRO_NARRATION, "en", "11-14", 1.1);
+      if (!introAudio?.length) throw new Error("Text-to-Speech returned no intro narration.");
+      await fs.writeFile(introAudioPath, introAudio);
+    }
     await normalizeIntro(SOURCE_VIDEO, introPath, introAudioPath);
     clips.push(introPath);
     moments.push({
@@ -199,12 +226,16 @@ export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
     await emit(`Generating visual for chapter ${i + 1} of ${CHAPTERS.length}: ${chapter.title}`, 8 + i * 10);
     const image = await makeImage(chapter, i, sessionDir);
     await emit(`Narrating chapter ${i + 1} of ${CHAPTERS.length}…`, 12 + i * 10);
-    const audio = await synthesizeSpeech(chapter.narration, "en", "11-14", 1.2);
-    if (!audio?.length) throw new Error("Text-to-Speech returned no audio. Check Google Cloud Text-to-Speech access.");
     const audioPath = path.join(sessionDir, `chapter-${i + 1}.mp3`);
-    await fs.writeFile(audioPath, audio);
+    if (!(await fileExistsWithContent(audioPath))) {
+      const audio = await synthesizeSpeech(chapter.narration, "en", "11-14", 1.2);
+      if (!audio?.length) throw new Error("Text-to-Speech returned no audio. Check Google Cloud Text-to-Speech access.");
+      await fs.writeFile(audioPath, audio);
+    }
     const clipPath = path.join(videoDir, `chapter-${i + 1}.mp4`);
-    await renderChapter(image.imagePath, audioPath, clipPath, chapterSeconds);
+    if (!(await fileExistsWithContent(clipPath, 100_000))) {
+      await renderChapter(image.imagePath, audioPath, clipPath, chapterSeconds);
+    }
     clips.push(clipPath);
     const startSeconds = introSeconds + i * chapterSeconds;
     const moment = {
@@ -235,7 +266,19 @@ export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
   await fs.writeFile(listPath, list, "utf8");
   const tmpPath = path.join(videoDir, ".rocket-five-minute.tmp.mp4");
   try {
-    await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-movflags", "+faststart", tmpPath]);
+    // Re-encode the joined streams into one browser-friendly H.264/AAC MP4.
+    // Stream-copy concatenation can preserve incompatible timestamps/stream metadata
+    // from independently rendered clips and produce a file browsers refuse to play.
+    await runFfmpeg([
+      "-y", "-f", "concat", "-safe", "0", "-i", listPath,
+      "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+      "-pix_fmt", "yuv420p", "-r", String(FPS),
+      "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+      "-movflags", "+faststart", tmpPath
+    ]);
+    if (!(await fileExistsWithContent(tmpPath, 100_000))) {
+      throw new Error("FFmpeg created an empty or incomplete lesson video.");
+    }
     await fs.rename(tmpPath, finalPath);
   } catch (err) {
     await fs.unlink(tmpPath).catch(() => {});
@@ -257,7 +300,9 @@ export async function buildRocketFiveMinuteLesson({ onProgress } = {}) {
     captions: []
   };
   await emit("Five-minute lesson ready", 100);
-  return { video, moments, introSeconds };
+  const result = { video, moments, introSeconds };
+  await fs.writeFile(metadataPath, JSON.stringify(result, null, 2), "utf8");
+  return result;
 }
 
 function projectIdMissing() {
