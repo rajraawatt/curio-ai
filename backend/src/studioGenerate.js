@@ -421,7 +421,15 @@ async function writeStill(dir, sessionId, momentIndex, image) {
   };
 }
 
+async function removeObsoleteRocketAssets() {
+  const legacyDirs = [
+    path.join(GENERATED_ROOT, "studio", "rocket-five-minute"),
+    path.join(GENERATED_ROOT, "studio", "1791914535838"),
+  ];
+  await Promise.all(legacyDirs.map((dir) => fs.rm(dir, { recursive: true, force: true }).catch(() => {})));
+}
 export async function generateStudioLesson({ prompt, onProgress }) {
+  await removeObsoleteRocketAssets();
   const text = String(prompt || "").trim();
   if (!text) {
     const err = new Error("Prompt is required");
