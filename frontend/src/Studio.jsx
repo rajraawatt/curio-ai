@@ -674,7 +674,7 @@ export function Studio({ mockId = "" }) {
         const res = await fetch("/api/studio/rocket-five-minute", {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-          body: JSON.stringify({ topic: text }),
+          body: JSON.stringify({ topic: text, forceRegenerate: true }),
         });
         if (!res.ok || !res.body) {
           const data = await res.json().catch(() => ({}));
