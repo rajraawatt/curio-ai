@@ -558,6 +558,9 @@ export function Studio({ mockId = "" }) {
           <span className="bg-gradient-to-r from-[#5b8cff] via-[#c084fc] to-[#fb923c] bg-clip-text text-transparent">Curio</span>
         </a>
         <div className="flex items-center gap-1">
+          <a href="/analytics" className="flex items-center gap-2 rounded-full border border-violet-300/30 bg-violet-500/10 px-3 py-2 text-sm font-black text-violet-100 no-underline hover:bg-violet-500/20">
+            <BarChart3 size={17} /> Content Insights
+          </a>
           <button
             type="button"
             className="flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-sm font-black text-white/80 hover:bg-white/10"
@@ -589,6 +592,9 @@ export function Studio({ mockId = "" }) {
           <button type="button" className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black ${historyOpen ? "bg-[#4c1d95] text-white" : "text-white/70 hover:bg-white/10"}`} onClick={() => setHistoryOpen((open) => !open)}>
             <BookOpen size={14} /> My Learnings
           </button>
+          <a href="/analytics" className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black text-white/70 no-underline hover:bg-white/10">
+            <BarChart3 size={14} /> Insights
+          </a>
         </nav>
         <div className="flex items-center gap-2">
           <button type="button" className="grid h-9 w-9 place-items-center rounded-full text-white/80 hover:bg-white/10" aria-label="History" onClick={() => setHistoryOpen((open) => !open)}>
