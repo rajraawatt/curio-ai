@@ -18,19 +18,6 @@ The prototype is a shared lesson on **How mountains form**. The teacher presents
 
 Language buttons (`en` / `hi` / `es`) change captions and narration for the whole class.
 
-## How the prototype maps to the pitch
-
-| Moment | What the class sees | What actually runs |
-| --- | --- | --- |
-| Lesson is live | The mountain world, with narration | Shared classroom state over server-sent events |
-| Student asks | The question appears on the teacher panel | `POST /api/questions`, including browser speech-to-text |
-| Teacher selects | The lesson pauses on that question | Teacher is the only one who can explore |
-| World transforms | Rock → minerals → crystals → atoms, or a Gemini-planned sequence | Instant scene engine. Known lesson beats are authored. New questions call Gemini |
-| Teacher returns | "Back to the mountain" | Phase returns to the original lesson |
-| After class | Curiosity analytics | In-memory board, plus BigQuery streaming when configured |
-
-Veo and Imagen are wired, and they are not on the live path. A classroom cannot wait minutes for a video to render. Gemini chooses the beats, the scene engine plays them immediately, and Cloud Text-to-Speech narrates when it is enabled. **Illustrate this beat with Imagen** and **Ask Veo for a lesson clip** in Settings show the media path without blocking the lesson.
-
 ## Google Cloud
 
 | Service | Role in CURIO |
