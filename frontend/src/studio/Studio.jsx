@@ -1412,6 +1412,7 @@ export function Studio({ mockId = "" }) {
                   lang="en"
                   ageGroup="11-14"
                   captions
+                  autoPlay={learningStarted}
                   playbackRef={playbackRef}
                   onTime={onTime}
                   onPrevious={momentIndex > 0 ? () => applyMoment(momentIndex - 1, true) : undefined}
