@@ -1,14 +1,14 @@
 # Curio
 
-A topic becomes a short photoreal lesson: stills, narrated clips, and a player.
+Curio turns a topic into an interactive video lesson. Students, self-learners, educators, and creators can watch the moments, ask questions in context, and come back to the lesson later.
 
-A lesson is 3 chapters (16s, 16s, 8s). Each clip is 8 seconds. Lessons are stored under `frontend/public/generated/studio/` and can be shared from Cloud Storage.
+A lesson is 3 chapters (16s, 16s, 8s). Each clip is 8 seconds.
 
-## Backend
+## Architecture
 
-Express on Cloud Run (`us-central1`, one instance). `POST /api/studio/generate` streams progress.
+The React app talks to an Express API on Cloud Run (`us-central1`, one instance). `POST /api/studio/generate` streams progress while the lesson is built.
 
-Gemini plans the chapters. Stills are made one at a time. A clip starts once both of its stills exist, with at most 4 clips at once. ffmpeg joins the clips, and the narration is mixed in before the join. Finished media is published to Cloud Storage. Ask Curio and lesson analytics go to Gemini and BigQuery.
+Gemini plans the chapters. Stills are made one at a time. A clip starts once both of its stills exist, with at most 4 clips at once. ffmpeg joins the clips, and the narration is mixed in before the join. Finished media is stored under `frontend/public/generated/studio/` and published to Cloud Storage. Ask Curio uses Gemini. Lesson analytics go to BigQuery.
 
 | Step | Model |
 | --- | --- |
