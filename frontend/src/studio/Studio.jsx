@@ -211,7 +211,7 @@ export function Studio({ mockId = "" }) {
     let cancelled = false;
     fetch("/api/studio/templates")
       .then((res) => { if (!res.ok) throw new Error("Template catalog unavailable"); return res.json(); })
-      .then((data) => { if (!cancelled && Array.isArray(data.templates)) setRemoteMocks(data.templates); })
+      .then((data) => { if (!cancelled && Array.isArray(data.templates)) { setRemoteMocks(data.templates); setRemoteSavedSession(data.savedRocketSession || null); } })
       .catch((err) => console.error("[studio-templates]", err));
     return () => { cancelled = true; };
   }, []);
