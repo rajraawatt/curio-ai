@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MockPicker, Studio } from "./studio/Studio.jsx";
+import { Analytics } from "./Analytics.jsx";
 
 function usePathname() {
   const [path, setPath] = useState(() => window.location.pathname);
@@ -13,6 +14,7 @@ function usePathname() {
 
 export function App() {
   const path = usePathname();
+  if (path === "/analytics" || path.startsWith("/analytics/")) return <Analytics key="analytics" />;
   if (path.startsWith("/studio/mocks")) return <MockPicker key="studio-mocks" />;
   const mockId = path.match(/^\/studio\/mock\/([^/]+)/)?.[1];
   if (mockId) return <Studio key={`studio-mock-${mockId}`} mockId={mockId} />;

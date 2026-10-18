@@ -43,6 +43,23 @@ function chapterClipFor(session, index) {
   };
 }
 
+const analyticsSessionId = globalThis.crypto?.randomUUID?.() || `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function trackAnalytics(eventType, details = {}) {
+  const event = {
+    eventId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    eventType,
+    sessionId: analyticsSessionId,
+    timestamp: new Date().toISOString(),
+    ...details,
+  };
+  fetch("/api/analytics/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(event),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 function structureRows(label) {
   return (label?.panels?.structure || [])
     .map((row) => ({
@@ -143,6 +160,99 @@ function shortSpan(seconds) {
   return `${minutes} min`;
 }
 
+function localMockFallback() {
+  return studioMocks.map((item) => ({
+    ...item,
+    image: "/curio-logo.png",
+    session: item.session ? {
+      ...item.session,
+      video: null,
+      moments: (item.session.moments || []).map((moment) => ({
+        ...moment,
+        images: [],
+        exploded: null,
+        inside: null,
+      })),
+    } : null,
+  }));
+}
+
+const TEMPLATE_MEDIA = {
+  nerve: {
+    image: "/generated/studio/1792258791298/video/lesson-1792258791298-poster.jpg",
+    thumbnailVideo: "/generated/studio/1792258791298/video/chapter-1-shot-1-veo.mp4",
+    momentStarts: [0, 40, 104, 128, 152],
+    momentSeconds: [40, 64, 24, 24, 32],
+    video: {
+      id: "nerve-lesson-1792258791298",
+      merged: true,
+      url: "/generated/studio/1792258791298/video/lesson-1792258791298.mp4",
+      durationSeconds: 184,
+      captions: [],
+    },
+  },
+};
+
+function hydrateTemplateMedia(templates) {
+  return templates.map((item) => {
+    const media = TEMPLATE_MEDIA[item.id];
+    if (!media) return item;
+    const image = item.image && item.image !== "/curio-logo.png" ? item.image : media.image;
+    const session = item.session
+      ? {
+          ...item.session,
+          video: item.session.video?.url ? item.session.video : { ...media.video, title: item.session.topic || item.name, posterUrl: image },
+          moments: (item.session.moments || []).map((moment, index) => ({
+            ...moment,
+            seekSec: media.momentStarts?.[index] ?? moment.seekSec,
+            seconds: media.momentSeconds?.[index] ?? moment.seconds,
+            images: moment.images?.some((entry) => entry.url)
+              ? moment.images
+              : [{ id: "template-preview", kind: "wide", url: image, error: null }],
+          })),
+        }
+      : item.session;
+    return { ...item, image, thumbnailVideo: item.thumbnailVideo || media.thumbnailVideo || media.video.url, session };
+  });
+}
+
+let templateCatalogPromise;
+
+function loadTemplateCatalog() {
+  if (!templateCatalogPromise) {
+    templateCatalogPromise = fetch("/api/studio/templates")
+      .then((res) => { if (!res.ok) throw new Error("Template catalog unavailable"); return res.json(); })
+      .then((data) => ({
+        templates: hydrateTemplateMedia(data.templates || []),
+        savedRocketSession: data.savedRocketSession || null,
+      }))
+      .catch((err) => {
+        console.warn("[studio-templates] Using local mock fallback because the template catalog is unavailable.", err);
+        return { templates: hydrateTemplateMedia(localMockFallback()), savedRocketSession: null };
+      });
+  }
+  return templateCatalogPromise;
+}
+
+function TemplateThumbnail({ item }) {
+  const videoUrl = item.thumbnailVideo || item.session?.video?.url;
+  if (videoUrl) {
+    return (
+      <video
+        src={videoUrl}
+        poster={item.image || undefined}
+        muted
+        autoPlay
+        loop
+        playsInline
+        preload="metadata"
+        className="h-16 w-16 shrink-0 rounded-xl object-cover"
+      />
+    );
+  }
+  return <img src={item.image || "/curio-logo.png"} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />;
+}
+
 function openStudioPath(event, href) {
   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
   event.preventDefault();
@@ -152,6 +262,19 @@ function openStudioPath(event, href) {
 }
 
 export function MockPicker() {
+  const [remoteMocks, setRemoteMocks] = useState(() => hydrateTemplateMedia(localMockFallback()));
+  const [, setRemoteSavedSession] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadTemplateCatalog().then((data) => {
+      if (!cancelled) {
+        setRemoteMocks(data.templates);
+        setRemoteSavedSession(data.savedRocketSession);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     const previous = document.body.style.background;
     document.body.style.background = "#000";
@@ -176,14 +299,14 @@ export function MockPicker() {
         <h1 className="m-0 text-center text-2xl font-black">Generated mocks</h1>
         <p className="m-0 mt-2 text-center text-sm font-bold text-white/55">Choose a lesson to open.</p>
         <div className="mt-6 grid gap-3">
-          {studioMocks.map((item) => (
+          {remoteMocks.map((item) => (
             <a
               key={item.id}
               href={`/studio/mock/${item.id}`}
               onClick={(event) => openStudioPath(event, `/studio/mock/${item.id}`)}
               className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-2 text-white no-underline hover:bg-white/10"
             >
-              <img src={item.image} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />
+              <TemplateThumbnail item={item} />
               <span className="min-w-0 flex-1 text-sm font-black leading-snug">{item.name}</span>
               <ArrowRight size={16} className="shrink-0 text-white/45" />
             </a>
@@ -195,7 +318,19 @@ export function MockPicker() {
 }
 
 export function Studio({ mockId = "" }) {
-  const mockSession = studioMocks.find((item) => item.id === mockId)?.session || null;
+  const [remoteMocks, setRemoteMocks] = useState(() => hydrateTemplateMedia(localMockFallback()));
+  const [remoteSavedSession, setRemoteSavedSession] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadTemplateCatalog().then((data) => {
+      if (!cancelled) {
+        setRemoteMocks(data.templates);
+        setRemoteSavedSession(data.savedRocketSession);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const mockSession = remoteMocks.find((item) => item.id === mockId)?.session || null;
   const mock = Boolean(mockSession);
   const [prompt, setPrompt] = useState(() => (mockSession ? mockSession.prompt : readDraft()?.session?.prompt || ""));
   const [busy, setBusy] = useState(() => !mockSession && Boolean(readDraft()?.busy));
@@ -231,6 +366,7 @@ export function Studio({ mockId = "" }) {
   const [starred, setStarred] = useState(() => readStarred());
   const [linkCopied, setLinkCopied] = useState(false);
   const [learningStarted, setLearningStarted] = useState(() => {
+    if (mockId) return false;
     if (mockSession) return false;
     const draft = readDraft();
     if (draft?.session) return Boolean(draft.learningStarted);
@@ -255,12 +391,21 @@ export function Studio({ mockId = "" }) {
   const [bridge, setBridge] = useState(null);
   const [playToken, setPlayToken] = useState(0);
 
+  useEffect(() => {
+    if (!mockId || !mockSession) return;
+    setSession(mockSession);
+    setPrompt(mockSession.prompt || "");
+    setFocus(mockSession.moments?.[0]?.labels?.[0] || null);
+  }, [mockId, mockSession?.id]);
+
   const moment = session?.moments?.[momentIndex] || null;
   const images = moment?.images || [];
   const image = images[imageIndex]?.url ? images[imageIndex] : null;
   const viewImage =
     panelView === "exploded" ? moment?.exploded : panelView === "inside" ? moment?.inside : image;
   const label = focus || moment?.labels?.[0] || null;
+  const analyticsLessonId = mockId || session?.id || "nerve";
+  const analyticsHref = `/analytics?lessonId=${encodeURIComponent(analyticsLessonId)}`;
 
   useEffect(() => {
     setStillPan({ x: 0, y: 0 });
@@ -333,8 +478,8 @@ export function Studio({ mockId = "" }) {
   useEffect(() => {
     if (mock || window.location.pathname !== "/studio/watch") return;
     setWatchMode(true);
-    setSession((current) => current || savedRocketSession());
-  }, [mock]);
+    setSession((current) => current || remoteSavedSession || savedRocketSession());
+  }, [mock, remoteSavedSession]);
 
   useEffect(() => {
     if (mock) return;
@@ -400,6 +545,7 @@ export function Studio({ mockId = "" }) {
     }
     handoffRef.current = false;
     setBridge(null);
+    trackAnalytics("moment_selected", { lessonId: analyticsLessonId, lessonTitle: session?.topic, chapterId: next.id || `chapter-${index + 1}`, chapterTitle: next.title, videoTimestampSec: next.seekSec ?? index * 8 });
     setMomentIndex(index);
     setImageIndex(0);
     setZoom(1);
@@ -502,7 +648,7 @@ export function Studio({ mockId = "" }) {
     setCropping(false);
     setMessages([]);
     if (/rocket/i.test(text)) {
-      const saved = savedRocketSession();
+      const saved = remoteSavedSession || savedRocketSession();
       setSession(saved);
       setFocus(saved.moments[0].labels[0]);
       setNotice("");
@@ -551,6 +697,7 @@ export function Studio({ mockId = "" }) {
     setQuestion("");
     setMessages((prev) => [...prev, { role: "user", text: ask }]);
     setTutorBusy(true);
+    trackAnalytics("question_asked", { lessonId: analyticsLessonId, lessonTitle: session?.topic, chapterId: moment?.id, chapterTitle: moment?.title, videoTimestampSec: moment?.seekSec ?? momentIndex * 8, questionCategory: "contextual_question" });
     try {
       const res = await fetch("/api/model-tutor", {
         method: "POST",
@@ -569,6 +716,7 @@ export function Studio({ mockId = "" }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Tutor failed");
       setMessages((prev) => [...prev, { role: "assistant", text: data.answer, followUp: data.followUp }]);
+      trackAnalytics("answer_generated", { lessonId: analyticsLessonId, lessonTitle: session?.topic, chapterId: moment?.id, chapterTitle: moment?.title, videoTimestampSec: moment?.seekSec ?? momentIndex * 8, answerStatus: data.source || "generated" });
     } catch (err) {
       setMessages((prev) => [...prev, { role: "assistant", text: err.message }]);
     } finally {
@@ -692,6 +840,9 @@ export function Studio({ mockId = "" }) {
           <span className="bg-gradient-to-r from-[#5b8cff] via-[#c084fc] to-[#fb923c] bg-clip-text text-transparent">Curio</span>
         </a>
         <div className="flex items-center gap-1">
+          <a href={analyticsHref} className="flex items-center gap-2 rounded-full border border-violet-300/30 bg-violet-500/10 px-3 py-2 text-sm font-black text-violet-100 no-underline hover:bg-violet-500/20">
+            <BarChart3 size={17} /> Content Insights
+          </a>
           <button
             type="button"
             className="flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-sm font-black text-white/80 hover:bg-white/10"
@@ -723,6 +874,9 @@ export function Studio({ mockId = "" }) {
           <button type="button" className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black ${historyOpen ? "bg-[#4c1d95] text-white" : "text-white/70 hover:bg-white/10"}`} onClick={() => setHistoryOpen((open) => !open)}>
             <BookOpen size={14} /> My Learnings
           </button>
+          <a href={analyticsHref} className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black text-white/70 no-underline hover:bg-white/10">
+            <BarChart3 size={14} /> Insights
+          </a>
         </nav>
         <div className="flex items-center gap-2">
           <button type="button" className="grid h-9 w-9 place-items-center rounded-full text-white/80 hover:bg-white/10" aria-label="History" onClick={() => setHistoryOpen((open) => !open)}>
@@ -773,7 +927,7 @@ export function Studio({ mockId = "" }) {
           <div className="mx-auto mt-8 w-full max-w-5xl">
             <p className="m-0 mb-3 text-sm font-bold text-white/55">Check our Generated mocks</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {studioMocks.map((item) => (
+              {(remoteMocks.length ? remoteMocks : studioMocks).map((item) => (
                 <a
                   key={item.id}
                   href={`/studio/mock/${item.id}`}
@@ -858,6 +1012,7 @@ export function Studio({ mockId = "" }) {
                   <Share2 size={13} /> {linkCopied ? "Copied" : "Share"}
                 </button>
                 <button type="button" disabled={busy} className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[#7C3AED] to-[#a855f7] px-5 py-2.5 text-sm font-semibold shadow-[0_8px_24px_rgba(124,58,237,0.4)] disabled:opacity-45" onClick={() => {
+                  trackAnalytics("lesson_started", { lessonId: analyticsLessonId, lessonTitle: session?.topic });
                   setLearningStarted(true);
                   if (hasLessonAssets(session)) {
                     setHistory((prev) => {
@@ -1257,6 +1412,7 @@ export function Studio({ mockId = "" }) {
                   lang="en"
                   ageGroup="11-14"
                   captions
+                  autoPlay={learningStarted}
                   playbackRef={playbackRef}
                   onTime={onTime}
                   onPrevious={momentIndex > 0 ? () => applyMoment(momentIndex - 1, true) : undefined}

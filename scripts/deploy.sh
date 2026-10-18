@@ -21,6 +21,15 @@ gcloud services enable \
   storage.googleapis.com \
   --project "$PROJECT"
 
+BUCKET="curio-assets-${PROJECT}"
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
+RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+gcloud storage buckets describe "gs://${BUCKET}" --project "$PROJECT" >/dev/null 2>&1 || \
+  gcloud storage buckets create "gs://${BUCKET}" --project "$PROJECT" --location "$REGION" --uniform-bucket-level-access
+
+gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
+  --member="serviceAccount:${RUNTIME_SA}" --role="roles/storage.objectViewer" --project "$PROJECT"
+
 gcloud run deploy curio \
   --source . \
   --project "$PROJECT" \
@@ -31,4 +40,4 @@ gcloud run deploy curio \
   --timeout 300 \
   --min-instances 1 \
   --max-instances 1 \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT},GOOGLE_CLOUD_LOCATION=${REGION},GEMINI_MODEL=gemini-2.5-flash"
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT},GOOGLE_CLOUD_LOCATION=${REGION},GEMINI_MODEL=gemini-2.5-flash,GCS_BUCKET=${BUCKET}"

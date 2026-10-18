@@ -81,12 +81,14 @@ export function LessonClipPlayer({
   onCrop,
   onEnded,
   playbackRef,
+  autoPlay = false,
   preload = "metadata",
   deferSrc = false,
   hug = false,
   wide = false,
 }) {
   const videoRef = useRef(null);
+  const autoPlayPending = useRef(autoPlay);
   const frameRef = useRef(null);
   const cropLayerRef = useRef(null);
   const cropDrag = useRef(null);
@@ -200,6 +202,10 @@ export function LessonClipPlayer({
     setVideoError("");
     setLoadAttempt(0);
   }, [clip?.url]);
+
+  useEffect(() => {
+    autoPlayPending.current = autoPlay;
+  }, [autoPlay, clip?.url]);
 
   useEffect(() => {
     if (!videoError || !clip?.url || loadAttempt >= 6) return undefined;
@@ -378,6 +384,8 @@ export function LessonClipPlayer({
           key={src}
           src={deferSrc ? undefined : src}
           poster={poster}
+          autoPlay={autoPlay}
+          muted={autoPlay}
           controls={!hideNativeControls && !wide}
           controlsList="nofullscreen"
           playsInline
@@ -408,8 +416,14 @@ export function LessonClipPlayer({
             }
             if (wide) {
               video.volume = volume || 1;
-              video.muted = false;
-              setSoundOn(true);
+              if (autoPlayPending.current) {
+                video.muted = true;
+                autoPlayPending.current = false;
+                setSoundOn(false);
+              } else {
+                video.muted = false;
+                setSoundOn(true);
+              }
             }
             setPaused(false);
             startNextRef.current(video);

@@ -28,7 +28,26 @@ function serveGenerated() {
         fs.stat(file, (err, stat) => {
           if (err || !stat.isFile()) return next();
           res.setHeader("Content-Type", GENERATED_TYPES[path.extname(file).toLowerCase()] || "application/octet-stream");
-          fs.createReadStream(file).pipe(res);
+          res.setHeader("Accept-Ranges", "bytes");
+          const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ""));
+          if (!range) {
+            res.setHeader("Content-Length", stat.size);
+            if (req.method === "HEAD") return res.end();
+            return fs.createReadStream(file).pipe(res);
+          }
+          const suffix = range[1] ? null : Number(range[2]);
+          const start = suffix === null ? Number(range[1]) : Math.max(stat.size - suffix, 0);
+          const end = range[2] && suffix === null ? Math.min(Number(range[2]), stat.size - 1) : stat.size - 1;
+          if (start >= stat.size || start > end) {
+            res.statusCode = 416;
+            res.setHeader("Content-Range", `bytes */${stat.size}`);
+            return res.end();
+          }
+          res.statusCode = 206;
+          res.setHeader("Content-Range", `bytes ${start}-${end}/${stat.size}`);
+          res.setHeader("Content-Length", end - start + 1);
+          if (req.method === "HEAD") return res.end();
+          return fs.createReadStream(file, { start, end }).pipe(res);
         });
       });
     },
