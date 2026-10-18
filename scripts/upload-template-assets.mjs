@@ -75,7 +75,7 @@ function readGeneratedSessions() {
       const veoClip = files.find((file) => /^video\/(?:chapter-1-shot-1-veo|moment-1-veo)\.mp4$/i.test(file));
       const videoFile = lesson || narratedClip || veoClip;
       const posterFile = files.find((file) => /^video\/lesson-[^/]+-poster\.jpg$/i.test(file));
-      const imageFile = files.find((file) => /^moment-1-image-(?:wide|detail)\.(?:png|jpe?g)$/i.test(file));
+      const imageFile = files.find((file) => /^moment-1-image-(?:wide|detail|frame-1)\.(?:png|jpe?g)$/i.test(file)) || files.find((file) => /^moment-1-image-[^/]+\.(?:png|jpe?g)$/i.test(file));
       const topicText = [
         snapshot?.topic,
         snapshot?.prompt,
