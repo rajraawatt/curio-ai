@@ -143,6 +143,23 @@ function shortSpan(seconds) {
   return `${minutes} min`;
 }
 
+function localMockFallback() {
+  return studioMocks.map((item) => ({
+    ...item,
+    image: "/curio-logo.png",
+    session: item.session ? {
+      ...item.session,
+      video: null,
+      moments: (item.session.moments || []).map((moment) => ({
+        ...moment,
+        images: [],
+        exploded: null,
+        inside: null,
+      })),
+    } : null,
+  }));
+}
+
 function openStudioPath(event, href) {
   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
   event.preventDefault();
@@ -159,7 +176,7 @@ export function MockPicker() {
     fetch("/api/studio/templates")
       .then((res) => { if (!res.ok) throw new Error("Template catalog unavailable"); return res.json(); })
       .then((data) => { if (!cancelled && Array.isArray(data.templates)) { setRemoteMocks(data.templates); setRemoteSavedSession(data.savedRocketSession || null); } })
-      .catch((err) => console.error("[studio-templates]", err));
+      .catch((err) => { console.warn("[studio-templates] Using local mock fallback because the template catalog is unavailable.", err); if (!cancelled) setRemoteMocks(localMockFallback()); });
     return () => { cancelled = true; };
   }, []);
 
@@ -213,7 +230,7 @@ export function Studio({ mockId = "" }) {
     fetch("/api/studio/templates")
       .then((res) => { if (!res.ok) throw new Error("Template catalog unavailable"); return res.json(); })
       .then((data) => { if (!cancelled && Array.isArray(data.templates)) { setRemoteMocks(data.templates); setRemoteSavedSession(data.savedRocketSession || null); } })
-      .catch((err) => console.error("[studio-templates]", err));
+      .catch((err) => { console.warn("[studio-templates] Using local mock fallback because the template catalog is unavailable.", err); if (!cancelled) setRemoteMocks(localMockFallback()); });
     return () => { cancelled = true; };
   }, []);
   const mockSession = remoteMocks.find((item) => item.id === mockId)?.session || null;
