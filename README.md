@@ -3,7 +3,7 @@
 Curio turns a topic into an interactive video lesson. Students, self-learners, educators, and creators can watch the moments, ask questions in context, and come back to the lesson later.
 
 
-Demo Link : https://youtu.be/1i1-_6oOrkg
+Demo Link : [https://youtu.be/1i1-_6oOrkg](https://youtu.be/6Gs8PcNxOho)
 
 A lesson is 3 chapters (16s, 16s, 8s). Each clip is 8 seconds.
 
