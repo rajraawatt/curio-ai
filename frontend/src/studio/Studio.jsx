@@ -157,7 +157,7 @@ export function MockPicker() {
     let cancelled = false;
     fetch("/api/studio/templates")
       .then((res) => { if (!res.ok) throw new Error("Template catalog unavailable"); return res.json(); })
-      .then((data) => { if (!cancelled && Array.isArray(data.templates)) setRemoteMocks(data.templates); })
+      .then((data) => { if (!cancelled && Array.isArray(data.templates)) { setRemoteMocks(data.templates); setRemoteSavedSession(data.savedRocketSession || null); } })
       .catch((err) => console.error("[studio-templates]", err));
     return () => { cancelled = true; };
   }, []);
@@ -206,6 +206,7 @@ export function MockPicker() {
 
 export function Studio({ mockId = "" }) {
   const [remoteMocks, setRemoteMocks] = useState([]);
+  const [remoteSavedSession, setRemoteSavedSession] = useState(null);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/studio/templates")
@@ -359,8 +360,8 @@ export function Studio({ mockId = "" }) {
   useEffect(() => {
     if (mock || window.location.pathname !== "/studio/watch") return;
     setWatchMode(true);
-    setSession((current) => current || savedRocketSession());
-  }, [mock]);
+    setSession((current) => current || remoteSavedSession || savedRocketSession());
+  }, [mock, remoteSavedSession]);
 
   useEffect(() => {
     if (mock) return;
@@ -528,7 +529,7 @@ export function Studio({ mockId = "" }) {
     setCropping(false);
     setMessages([]);
     if (/rocket/i.test(text)) {
-      const saved = savedRocketSession();
+      const saved = remoteSavedSession || savedRocketSession();
       setSession(saved);
       setFocus(saved.moments[0].labels[0]);
       setNotice("");
