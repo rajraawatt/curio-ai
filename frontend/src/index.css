@@ -69,6 +69,27 @@
   }
 }
 
+.lesson-dots::after {
+  content: "";
+  animation: lesson-dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes lesson-dots {
+  0% { content: ""; }
+  25% { content: "."; }
+  50% { content: ".."; }
+  75%, 100% { content: "..."; }
+}
+
+@keyframes chapter-ring {
+  from {
+    stroke-dashoffset: 264;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 @keyframes playhead {
   from {
     width: 32%;

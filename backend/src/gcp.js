@@ -177,8 +177,8 @@ function sleep(ms) {
 }
 
 function busyWaitMs(attempt) {
-  const base = Math.min(60000, 4000 * 2 ** attempt);
-  return base + Math.floor(Math.random() * 2000);
+  const base = Math.min(60000, 1000 * 2 ** attempt);
+  return Math.min(60000, base + Math.floor(Math.random() * 1000));
 }
 
 function inlineImage(data) {
@@ -204,7 +204,7 @@ export async function generateDiagram(prompt, { instruction, aspectRatio, onStat
   const url = `https://aiplatform.googleapis.com/v1/projects/${projectId()}/locations/global/publishers/google/models/${model}:generateContent`;
   let lastError = "The image model returned no image";
 
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     const passes = aspectRatio ? [true, false] : [false];
     for (const useAspect of passes) {
       const generationConfig = {
@@ -230,7 +230,7 @@ export async function generateDiagram(prompt, { instruction, aspectRatio, onStat
         const busy = res.status === 429 || /exhausted|quota|resource/i.test(lastError);
         if (busy) {
           onStatus?.({ attempt: attempt + 1, status: res.status, message: lastError });
-          if (attempt < 7) await sleep(busyWaitMs(attempt));
+          if (attempt < 4) await sleep(busyWaitMs(attempt));
           break;
         }
         if (useAspect && /aspect|imageConfig|unknown name/i.test(lastError)) continue;
@@ -309,7 +309,6 @@ export async function startVeoGeneration({
 } = {}) {
   if (!projectId()) throw new Error("Veo needs GOOGLE_CLOUD_PROJECT and Application Default Credentials");
   const model = process.env.VEO_MODEL || "veo-3.1-fast-generate-001";
-  const token = await accessToken();
   const url = `https://${location()}-aiplatform.googleapis.com/v1/projects/${projectId()}/locations/${location()}/publishers/google/models/${model}:predictLongRunning`;
 
   const instance = { prompt: String(prompt || "").slice(0, 2000) };
@@ -336,6 +335,7 @@ export async function startVeoGeneration({
   const bucket = storageUri || (process.env.GCS_BUCKET ? `gs://${process.env.GCS_BUCKET.replace(/^gs:\/\//, "")}/curio-veo/` : null);
   if (bucket) parameters.storageUri = bucket.endsWith("/") ? bucket : `${bucket}/`;
 
+  const token = await accessToken();
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -354,19 +354,26 @@ export async function startVeoGeneration({
 export async function fetchVeoOperation(operationName) {
   if (!projectId()) throw new Error("Veo needs GOOGLE_CLOUD_PROJECT");
   const model = process.env.VEO_MODEL || "veo-3.1-fast-generate-001";
-  const token = await accessToken();
   const url = `https://${location()}-aiplatform.googleapis.com/v1/projects/${projectId()}/locations/${location()}/publishers/google/models/${model}:fetchPredictOperation`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ operationName }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error?.message || `Veo poll failed (${res.status})`);
-  return data;
+  let lastError = "Veo poll failed";
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const token = await accessToken();
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ operationName }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return data;
+    lastError = data?.error?.message || `Veo poll failed (${res.status})`;
+    const busy = res.status === 429 || /exhausted|quota|resource/i.test(lastError);
+    if (!busy || attempt >= 4) throw new Error(lastError);
+    await sleep(busyWaitMs(attempt));
+  }
+  throw new Error(lastError);
 }
 
 async function downloadGcsObject(gsUri, destPath) {
@@ -507,18 +514,29 @@ export async function generateVeoClipFromImage({
   aspectRatio = "16:9",
   resolution = null,
 }) {
-  const operationName = await startVeoGeneration({
-    prompt,
-    imageBase64,
-    mimeType,
-    lastImageBase64,
-    lastMimeType,
-    durationSeconds,
-    generateAudio,
-    aspectRatio,
-    resolution,
-  });
-  return waitForVeoAndSave(operationName, destPath);
+  let lastError = "Veo clip failed";
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const operationName = await startVeoGeneration({
+        prompt,
+        imageBase64,
+        mimeType,
+        lastImageBase64,
+        lastMimeType,
+        durationSeconds,
+        generateAudio,
+        aspectRatio,
+        resolution,
+      });
+      return await waitForVeoAndSave(operationName, destPath);
+    } catch (err) {
+      lastError = err?.message || String(err);
+      const busy = /exhausted|quota|resource/i.test(lastError);
+      if (!busy || attempt >= 4) throw err;
+      await sleep(busyWaitMs(attempt));
+    }
+  }
+  throw new Error(lastError);
 }
 
 export function healthInfo(extra = {}) {

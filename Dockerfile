@@ -3,7 +3,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 COPY frontend/package.json frontend/
-RUN npm install
+RUN npm install && npm install --no-save \
+  @rollup/rollup-linux-x64-musl \
+  lightningcss-linux-x64-musl \
+  @tailwindcss/oxide-linux-x64-musl
 COPY frontend frontend
 RUN npm run build -w curio-frontend
 

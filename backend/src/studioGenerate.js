@@ -5,15 +5,17 @@ import { fileURLToPath } from "url";
 import ffmpegPath from "ffmpeg-static";
 import { generateDiagram, geminiGenerate, generateVeoClipFromImage, synthesizeSpeech } from "./gcp.js";
 import { writeMergedPoster } from "./mergeLessonVideo.js";
+import { publishStudioSession } from "./studioPublish.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GENERATED_ROOT = path.join(__dirname, "../../frontend/public/generated");
 
-// Test runs stop after chapter 3. Restore [40, 32, 24, 16, 16] for a full lesson.
-export const CHAPTER_SECONDS = [24, 24, 16];
+// Short test lesson. Restore [40, 32, 24, 16, 16] for a full lesson.
+export const CHAPTER_SECONDS = [16, 16, 8];
 export const STUDIO_MOMENTS = CHAPTER_SECONDS.length;
 const CLIP_SECONDS = 8;
 const JOIN_FADE_SECONDS = 0.8;
+const STILL_GAP_MS = 2000;
 
 const STUDIO_STILL_INSTRUCTION = `Visual style: photorealistic cinematic realism.
 Generate an exceptionally realistic, high-detail, cinematic image of the requested subject. It should look like a premium real-world photograph or a high-end photorealistic 3D render from an expert visual effects studio, never like a cartoon, illustration, flat graphic, or generic AI artwork.
@@ -123,6 +125,10 @@ export function normalizeStudioPlan(parsed, prompt) {
   };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function shortLine(value, max) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -143,18 +149,25 @@ function normalizeLabel(label, index, title) {
   const steps = (value) =>
     (Array.isArray(value) ? value : [])
       .map((item) => ({
-        title: shortLine(item?.title || item?.name, 48),
-        text: shortLine(item?.text || item?.detail, 180),
+        title: shortLine(item?.title || item?.name || item?.text, 48),
+        text: shortLine(item?.text || item?.detail || item?.title, 180),
       }))
-      .filter((item) => item.title && item.text)
+      .filter((item) => item.text)
       .slice(0, 5);
-  const structure = (Array.isArray(label?.structure) ? label.structure : [])
+  let structure = (Array.isArray(label?.structure) ? label.structure : [])
     .map((item) => ({
       name: shortLine(item?.name || item?.title, 40),
       detail: shortLine(item?.detail || item?.text, 160),
     }))
     .filter((item) => item.name && item.detail)
     .slice(0, 4);
+  if (!structure.length) {
+    structure = facts.map(([name, detail]) => ({ name, detail })).slice(0, 4);
+  }
+  let functionSteps = steps(label?.function || label?.panels?.function);
+  if (!functionSteps.length) {
+    functionSteps = highlights.map((text) => ({ title: text, text }));
+  }
   return {
     id: cleanId(label?.id || text, `part_${index + 1}`),
     text,
@@ -162,7 +175,7 @@ function normalizeLabel(label, index, title) {
     highlights,
     facts,
     panels: {
-      function: steps(label?.function || label?.panels?.function),
+      function: functionSteps,
       structure,
       related: steps(label?.related || label?.panels?.related),
     },
@@ -182,7 +195,7 @@ Write a subject sentence that names the exact thing and the place. Every chapter
 Chapter 1 opens the scene. Each later chapter continues that same action. Do not start a new topic.
 A frame is one photorealistic 16:9 still. The frames in a chapter are a storyboard: frame 1 is second 0, and each next frame is 8 seconds later. Describe the same subject moving forward. No diagrams, no square frames, no text in the picture.
 Each narration line is about 20 words a teacher would say during that 8-second step. One line per step, in order.
-Each chapter has exactly 2 part labels. Every label needs a one-sentence blurb, 3 short overview lines, and 3 quick facts. Facts must be true for a classroom, not invented numbers. Exactly 3 short summary points.
+Each chapter has exactly 2 part labels. Every label needs a one-sentence blurb, 3 short overview lines, 3 quick facts, 3 function steps, and 3 structure rows. Facts must be true for a classroom, not invented numbers. Function steps say what that part does in this chapter, in order. Structure rows name a real piece of that part and what it is. Exactly 3 short summary points.
 Captions are 8 words or fewer.
 
 {
@@ -202,7 +215,9 @@ Captions are 8 words or fewer.
           "text": "Part name",
           "blurb": "one sentence a student can understand",
           "highlights": ["One thing to notice.", "What it does here.", "Why it matters."],
-          "facts": [["Name", "short value"], ["Name", "short value"], ["Name", "short value"]]
+          "facts": [["Name", "short value"], ["Name", "short value"], ["Name", "short value"]],
+          "function": [{ "text": "What this part does first." }, { "text": "What happens next." }, { "text": "Why that matters here." }],
+          "structure": [{ "name": "Piece", "detail": "What that piece is." }]
         }
       ]
     }
@@ -330,6 +345,13 @@ async function normalizeClip(input, output) {
   }
 }
 
+function joinedAudioFilter(offsetSeconds) {
+  const offset = Number(offsetSeconds).toFixed(3);
+  const fade = 0.12;
+  const fadeOutAt = Math.max(0, Number(offset) - fade).toFixed(3);
+  return `[0:a]atrim=0:${offset},asetpts=PTS-STARTPTS,afade=t=out:st=${fadeOutAt}:d=${fade}[a0];[1:a]afade=t=in:d=${fade},asetpts=PTS-STARTPTS[a1];[a0][a1]concat=n=2:v=0:a=1[a]`;
+}
+
 async function mergeTwoClips(firstPath, secondPath, destPath) {
   const offset = (CLIP_SECONDS - JOIN_FADE_SECONDS).toFixed(2);
   const dir = path.dirname(destPath);
@@ -345,7 +367,7 @@ async function mergeTwoClips(firstPath, secondPath, destPath) {
       "-i",
       normalized[1],
       "-filter_complex",
-      `[0:v][1:v]xfade=transition=fade:duration=${JOIN_FADE_SECONDS}:offset=${offset}[v];[0:a][1:a]acrossfade=d=${JOIN_FADE_SECONDS}[a]`,
+      `[0:v][1:v]xfade=transition=fade:duration=${JOIN_FADE_SECONDS}:offset=${offset}[v];${joinedAudioFilter(offset)}`,
       "-map",
       "[v]",
       "-map",
@@ -463,7 +485,7 @@ async function concatClips(inputPaths, destPath) {
         "-i",
         normalized[i],
         "-filter_complex",
-        `[0:v]setpts=PTS-STARTPTS,fps=24,format=yuv420p[v0];[1:v]setpts=PTS-STARTPTS,fps=24,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${JOIN_FADE_SECONDS}:offset=${offset}[v];[0:a]asetpts=PTS-STARTPTS[a0];[1:a]asetpts=PTS-STARTPTS[a1];[a0][a1]acrossfade=d=${JOIN_FADE_SECONDS}[a]`,
+        `[0:v]setpts=PTS-STARTPTS,fps=24,format=yuv420p[v0];[1:v]setpts=PTS-STARTPTS,fps=24,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${JOIN_FADE_SECONDS}:offset=${offset}[v];${joinedAudioFilter(offset)}`,
         "-map",
         "[v]",
         "-map",
@@ -810,7 +832,7 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     const jobs = [];
     for (const index of indexes) {
       const moment = session.moments[index];
-      moment.images.forEach((image) => {
+      moment.images.forEach((image, imageIndex) => {
         jobs.push(async () => {
           const frame = String(image.kind || "frame").replace("frame-", "F");
           try {
@@ -834,6 +856,7 @@ export async function generateStudioLesson({ prompt, onProgress }) {
           enqueueClips();
           const pct = 8 + Math.round((stillsFinished / Math.max(1, stillTotal)) * 40);
           await emitAt(`Stills ${stillsFinished}/${stillTotal}`, pct);
+          if (imageIndex > 0 && stillsFinished < stillTotal) await sleep(STILL_GAP_MS);
         });
       });
     }
@@ -845,6 +868,7 @@ export async function generateStudioLesson({ prompt, onProgress }) {
   while (clipWait.length) {
     const batch = clipWait.splice(0, clipWait.length);
     await Promise.all(batch);
+    enqueueClips();
   }
 
   const chapterPaths = [];
@@ -914,5 +938,254 @@ export async function generateStudioLesson({ prompt, onProgress }) {
     await emit("No video", 100, true);
   }
 
+  await publishStudioSession(sessionId).catch((err) => {
+    console.error("[studio] share upload", err.message);
+  });
+
+  return publicStudioSession(session);
+}
+
+function repairError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+async function loadStillBytes(image) {
+  if (image.base64) return image;
+  const url = String(image.url || "").split("?")[0];
+  const marker = "/generated/studio/";
+  const index = url.indexOf(marker);
+  if (index < 0) return image;
+  const filePath = path.join(GENERATED_ROOT, url.slice(index + "/generated/".length));
+  const bytes = await fs.readFile(filePath);
+  image.filePath = filePath;
+  image.base64 = bytes.toString("base64");
+  image.mimeType = /\.jpe?g$/i.test(filePath) ? "image/jpeg" : "image/png";
+  return image;
+}
+
+function stillNeedsRepair(image) {
+  return !image?.url || Boolean(image.error);
+}
+
+function repairStillPrompt(session, moment, image, index) {
+  if (image.prompt) return image.prompt;
+  return `${session.topic}. ${moment.title}. ${moment.caption || ""} Frame ${index + 1} of this chapter, the same subject continuing.`.replace(/\s+/g, " ").trim();
+}
+
+async function clipFile(videoDir, momentIndex, clipIndex) {
+  const filePath = path.join(videoDir, `clip-${momentIndex + 1}-${clipIndex + 1}.mp4`);
+  try {
+    await fs.access(filePath);
+    return filePath;
+  } catch {
+    return null;
+  }
+}
+
+export async function repairStudioChapter({ id, chapter, mode, onProgress }) {
+  const sessionId = String(id || "").replace(/[^\d]/g, "");
+  const chapterIndex = Number(chapter);
+  if (!sessionId || !Number.isInteger(chapterIndex) || chapterIndex < 0) throw repairError(400, "Choose a chapter");
+  if (mode !== "chapter" && mode !== "stills") throw repairError(400, "Choose what to regenerate");
+
+  const sessionDir = path.join(GENERATED_ROOT, "studio", sessionId);
+  const videoDir = path.join(sessionDir, "video");
+  let saved;
+  try {
+    const raw = JSON.parse(await fs.readFile(path.join(sessionDir, "session.json"), "utf8"));
+    saved = raw.session || raw;
+  } catch {
+    throw repairError(404, "This lesson is not on this computer");
+  }
+  const moment = saved.moments?.[chapterIndex];
+  if (!moment) throw repairError(404, "Chapter not found");
+  if (!moment.images?.length) throw repairError(400, "This chapter has no stills to regenerate");
+
+  const session = {
+    id: sessionId,
+    topic: saved.topic,
+    prompt: saved.prompt,
+    moments: saved.moments.map((item) => ({
+      ...item,
+      images: (item.images || []).map((image) => ({ ...image })),
+      narration: (item.clip?.captions || []).map((line) => line?.text).filter(Boolean),
+      clipPaths: [],
+    })),
+    video: saved.video || null,
+    errors: [],
+  };
+  const target = session.moments[chapterIndex];
+  const stillTargets = mode === "chapter"
+    ? target.images.map((image, index) => ({ image, index }))
+    : target.images.map((image, index) => ({ image, index })).filter(({ image }) => stillNeedsRepair(image));
+  if (mode === "stills" && !stillTargets.length) throw repairError(400, "This chapter has no missing stills");
+
+  const statusLog = [];
+  let emitChain = Promise.resolve();
+  const note = (line) => {
+    statusLog.push(String(line).slice(0, 90));
+    if (statusLog.length > 6) statusLog.shift();
+  };
+  const emit = (notice, progress, done = false) => {
+    emitChain = emitChain.then(async () => {
+      const payload = {
+        notice,
+        progress,
+        done,
+        log: statusLog.slice(),
+        updatedAt: Date.now(),
+        session: publicStudioSession(session),
+      };
+      await fs.writeFile(path.join(sessionDir, "session.json"), JSON.stringify(payload));
+      if (onProgress) await onProgress(payload);
+    }).catch(() => {});
+    return emitChain;
+  };
+
+  await fs.mkdir(videoDir, { recursive: true });
+  await emit(mode === "chapter" ? `Chapter ${chapterIndex + 1}` : `Missing stills`, 8);
+
+  for (let n = 0; n < stillTargets.length; n += 1) {
+    const { image, index } = stillTargets[n];
+    const frame = String(image.kind || `frame-${index + 1}`).replace("frame-", "F");
+    image.prompt = repairStillPrompt(session, target, image, index);
+    image.error = null;
+    try {
+      const written = await writeStill(sessionDir, sessionId, chapterIndex, image, async (info) => {
+        note(info.status === 200 ? `Ch${chapterIndex + 1} ${frame} · 200` : `Ch${chapterIndex + 1} ${frame} · retry ${info.attempt} · ${info.status}`);
+        await emit(mode === "chapter" ? `Chapter ${chapterIndex + 1}` : `Missing stills`, 8 + Math.round(((n + 1) / stillTargets.length) * (mode === "stills" ? 84 : 30)));
+      });
+      image.url = written.url;
+      image.filePath = written.filePath;
+      image.mimeType = written.mimeType;
+      image.base64 = written.base64;
+    } catch (err) {
+      image.error = err.message;
+      session.errors.push(`${target.title}: ${err.message}`);
+      note(`Ch${chapterIndex + 1} ${frame} · ${String(err.message).slice(0, 48)}`);
+    }
+    if (n < stillTargets.length - 1) await sleep(STILL_GAP_MS);
+  }
+
+  if (mode === "stills") {
+    await emit("Ready", 100, true);
+    await publishStudioSession(sessionId).catch((err) => {
+      console.error("[studio] share upload", err.message);
+    });
+    return publicStudioSession(session);
+  }
+
+  const clipTotal = Math.max(0, target.images.length - 1);
+  for (let clip = 0; clip < clipTotal; clip += 1) {
+    const start = target.images[clip];
+    const end = target.images[clip + 1];
+    note(`Ch${chapterIndex + 1} clip ${clip + 1} · Veo`);
+    await emit(`Chapter ${chapterIndex + 1}`, 40 + Math.round((clip / Math.max(1, clipTotal)) * 40));
+    try {
+      await loadStillBytes(start);
+      await loadStillBytes(end);
+      if (!start?.base64 || !end?.base64) throw new Error("missing still");
+      const rawPath = path.join(videoDir, `raw-${chapterIndex + 1}-${clip + 1}.mp4`);
+      const destPath = path.join(videoDir, `clip-${chapterIndex + 1}-${clip + 1}.mp4`);
+      await generateVeoClipFromImage({
+        prompt: `${target.caption || target.title}. Move from this frame toward the next. ${STUDIO_VIDEO_STYLE}`,
+        imageBase64: start.base64,
+        mimeType: start.mimeType || "image/png",
+        lastImageBase64: end.base64,
+        lastMimeType: end.mimeType || "image/png",
+        destPath: rawPath,
+        durationSeconds: CLIP_SECONDS,
+        generateAudio: false,
+        resolution: "720p",
+      });
+      const line = target.narration?.[clip] || target.caption || target.title;
+      try {
+        const speech = await synthesizeSpeech(line);
+        if (!speech) throw new Error("Text-to-Speech returned no audio");
+        await muxSpeech(rawPath, speech, destPath);
+      } catch (err) {
+        session.errors.push(`${target.title} voice ${clip + 1}: ${err.message}`);
+        await fs.copyFile(rawPath, destPath);
+      }
+      target.clipPaths[clip] = destPath;
+    } catch (err) {
+      session.errors.push(`${target.title} video ${clip + 1}: ${err.message}`);
+      target.clipError = err.message;
+    }
+  }
+
+  const ready = [];
+  for (let clip = 0; clip < clipTotal; clip += 1) {
+    const file = target.clipPaths[clip] || await clipFile(videoDir, chapterIndex, clip);
+    if (file) ready.push({ file, index: clip });
+  }
+  const stamp = Date.now();
+  const chapterPath = path.join(videoDir, `chapter-${chapterIndex + 1}.mp4`);
+  if (ready.length === 1) await fs.copyFile(ready[0].file, chapterPath);
+  else if (ready.length > 1) await concatClips(ready.map((item) => item.file), chapterPath);
+
+  let clock = 0;
+  const lessonCaptions = [];
+  const chapterPaths = [];
+  for (let i = 0; i < session.moments.length; i += 1) {
+    const item = session.moments[i];
+    item.seekSec = clock;
+    if (i === chapterIndex && ready.length) {
+      const played = blendedSeconds(ready.length);
+      const stepSeconds = ready.length > 1 ? CLIP_SECONDS - JOIN_FADE_SECONDS : CLIP_SECONDS;
+      const captions = ready.map((entry, step) => ({
+        atSec: step * stepSeconds,
+        text: item.narration?.[entry.index] || item.caption || item.title,
+      }));
+      item.seconds = played;
+      item.clipError = null;
+      item.clip = {
+        url: `/generated/studio/${sessionId}/video/chapter-${i + 1}.mp4?t=${stamp}`,
+        posterUrl: item.images.find((image) => image.url)?.url || null,
+        durationSeconds: played,
+        stepSeconds,
+        captions,
+      };
+    }
+    const played = item.clip?.durationSeconds || item.seconds || 0;
+    (item.clip?.captions || []).forEach((line) => {
+      if (line?.text) lessonCaptions.push({ atSec: clock + (line.atSec || 0), text: line.text });
+    });
+    const file = path.join(videoDir, `chapter-${i + 1}.mp4`);
+    try {
+      await fs.access(file);
+      chapterPaths.push(file);
+    } catch {
+      // This chapter has no video yet.
+    }
+    clock += played;
+  }
+
+  await emit("Joining", 94);
+  const lessonName = `lesson-${sessionId}.mp4`;
+  const lessonPath = path.join(videoDir, lessonName);
+  if (chapterPaths.length >= 2) await concatReady(chapterPaths, lessonPath);
+  else if (chapterPaths.length === 1) await fs.copyFile(chapterPaths[0], lessonPath);
+  if (chapterPaths.length) {
+    const posterName = `lesson-${sessionId}-poster.jpg`;
+    await writeMergedPoster(lessonPath, path.join(videoDir, posterName)).catch(() => {});
+    session.video = {
+      ...(session.video || {}),
+      id: "studio-lesson",
+      merged: chapterPaths.length > 1,
+      title: session.topic,
+      url: `/generated/studio/${sessionId}/video/${lessonName}?t=${Date.now()}`,
+      posterUrl: `/generated/studio/${sessionId}/video/${posterName}?t=${Date.now()}`,
+      durationSeconds: clock,
+      voiced: true,
+      captions: lessonCaptions,
+    };
+  }
+  await emit("Ready", 100, true);
+  await publishStudioSession(sessionId).catch((err) => {
+    console.error("[studio] share upload", err.message);
+  });
   return publicStudioSession(session);
 }

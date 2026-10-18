@@ -88,7 +88,6 @@ export function LessonClipPlayer({
   wide = false,
 }) {
   const videoRef = useRef(null);
-  const autoPlayPending = useRef(autoPlay);
   const frameRef = useRef(null);
   const cropLayerRef = useRef(null);
   const cropDrag = useRef(null);
@@ -106,7 +105,7 @@ export function LessonClipPlayer({
   const [videoError, setVideoError] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(true);
-  const [soundOn, setSoundOn] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   const [volume, setVolume] = useState(1);
   const [duration, setDuration] = useState(clip?.durationSeconds || 0);
   const [fill, setFill] = useState({ scale: 1, origin: 50 });
@@ -177,12 +176,15 @@ export function LessonClipPlayer({
     while (left < w / 2 && columnDark(left)) left += 1;
     let right = w - 1;
     while (right > w / 2 && columnDark(right)) right -= 1;
+    const content = right - left + 1;
     const side = Math.max(left, w - 1 - right);
-    if (side < w * 0.04) {
+    // A black opening frame looks like bars that meet in the middle and
+    // produces a huge zoom. Only crop a thin, stable letterbox.
+    if (side < w * 0.04 || content < w * 0.8) {
       setFill((prev) => (prev.scale === 1 ? prev : { scale: 1, origin: 50 }));
       return;
     }
-    const scale = w / Math.max(1, right - left + 1);
+    const scale = Math.min(1.15, w / content);
     const origin = ((left + right) / 2 / w) * 100;
     setFill((prev) => (
       Math.abs(prev.scale - scale) < 0.04 && Math.abs(prev.origin - origin) < 1.5
@@ -201,11 +203,9 @@ export function LessonClipPlayer({
   useEffect(() => {
     setVideoError("");
     setLoadAttempt(0);
+    setFill({ scale: 1, origin: 50 });
+    measuredAt.current = 0;
   }, [clip?.url]);
-
-  useEffect(() => {
-    autoPlayPending.current = autoPlay;
-  }, [autoPlay, clip?.url]);
 
   useEffect(() => {
     if (!videoError || !clip?.url || loadAttempt >= 6) return undefined;
@@ -385,7 +385,6 @@ export function LessonClipPlayer({
           src={deferSrc ? undefined : src}
           poster={poster}
           autoPlay={autoPlay}
-          muted={autoPlay}
           controls={!hideNativeControls && !wide}
           controlsList="nofullscreen"
           playsInline
@@ -404,7 +403,10 @@ export function LessonClipPlayer({
             setVideoError("");
             e.currentTarget.playbackRate = rate;
             if (e.currentTarget.duration) setDuration(e.currentTarget.duration);
-            if (wide && e.currentTarget.paused) e.currentTarget.muted = true;
+            if (wide) {
+              e.currentTarget.volume = volume || 1;
+              e.currentTarget.muted = false;
+            }
             measureFill(e.currentTarget);
           }}
           onPlay={(e) => {
@@ -416,14 +418,8 @@ export function LessonClipPlayer({
             }
             if (wide) {
               video.volume = volume || 1;
-              if (autoPlayPending.current) {
-                video.muted = true;
-                autoPlayPending.current = false;
-                setSoundOn(false);
-              } else {
-                video.muted = false;
-                setSoundOn(true);
-              }
+              video.muted = false;
+              setSoundOn(true);
             }
             setPaused(false);
             startNextRef.current(video);
@@ -464,10 +460,6 @@ export function LessonClipPlayer({
           onPause={(e) => {
             const video = e.currentTarget;
             setPaused(true);
-            if (wide) {
-              video.muted = true;
-              setSoundOn(false);
-            }
             if (video.ended || video.currentTime >= (video.duration || 8) - 0.2) return;
             speakingRef.current = false;
             stopCaptionVoice(wide ? null : video);

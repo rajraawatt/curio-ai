@@ -29,6 +29,8 @@ gcloud storage buckets describe "gs://${BUCKET}" --project "$PROJECT" >/dev/null
 
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
   --member="serviceAccount:${RUNTIME_SA}" --role="roles/storage.objectViewer" --project "$PROJECT"
+gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
+  --member="serviceAccount:${RUNTIME_SA}" --role="roles/storage.objectAdmin" --project "$PROJECT"
 
 gcloud run deploy curio \
   --source . \

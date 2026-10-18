@@ -1,4 +1,5 @@
 import fs from "fs";
+import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { defineConfig } from "vite";
@@ -26,7 +27,21 @@ function serveGenerated() {
         const file = path.resolve(root, `.${raw}`);
         if (!file.startsWith(`${root}${path.sep}`)) return next();
         fs.stat(file, (err, stat) => {
-          if (err || !stat.isFile()) return next();
+          if (err || !stat.isFile()) {
+            const proxyReq = http.request({
+              hostname: "127.0.0.1",
+              port: 8080,
+              path: `/generated${req.url}`,
+              method: req.method,
+              headers: { ...req.headers, host: "127.0.0.1:8080" },
+            }, (proxyRes) => {
+              res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+              proxyRes.pipe(res);
+            });
+            proxyReq.on("error", () => next());
+            req.pipe(proxyReq);
+            return;
+          }
           res.setHeader("Content-Type", GENERATED_TYPES[path.extname(file).toLowerCase()] || "application/octet-stream");
           res.setHeader("Accept-Ranges", "bytes");
           const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ""));

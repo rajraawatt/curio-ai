@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Activity, ArrowRight, AudioLines, BarChart3, BookOpen, Bookmark, Box, Check, ChevronLeft, ChevronRight, Clock, Crop, Download, Hand, History, House, Loader2, Lock, MoreHorizontal, PanelLeft, Pencil, Play, Plus, Search, Send, Share2, Sparkles, Star, Target, User, X, Zap, ZoomIn, ZoomOut,
+  Activity, ArrowRight, AudioLines, BarChart3, BookOpen, Bookmark, Box, Check, ChevronLeft, ChevronRight, Clock, Crop, Download, Hand, History, House, Loader2, Lock, MoreHorizontal, PanelLeft, Pencil, Play, Plus, Search, Send, Share2, Sparkles, Star, Target, X, Zap, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { LessonClipPlayer } from "./LessonClipPlayer.jsx";
 import { savedRocketSession, studioMocks } from "./studioMock.js";
 import { clearDraft, hasLessonAssets, readDraft, readHistory, readStarred, saveDraft, savedChat, storeChat, writeHistory, writeStarred } from "./storage.js";
+
+const CHAPTER_INTRO_MS = 3000;
+const PUBLIC_APP_ORIGIN = "https://curio-415543131068.us-central1.run.app";
 
 function usesChapterFiles(session) {
   if (!session || session.id === "rocket-saved") return false;
@@ -61,12 +64,29 @@ function trackAnalytics(eventType, details = {}) {
 }
 
 function structureRows(label) {
-  return (label?.panels?.structure || [])
+  const rows = (label?.panels?.structure || [])
     .map((row) => ({
       name: row.name || row.title,
       detail: row.detail || row.text,
     }))
     .filter((row) => row.name && row.detail);
+  if (rows.length) return rows;
+  return (label?.facts || [])
+    .map((row) => ({
+      name: Array.isArray(row) ? row[0] : row?.name,
+      detail: Array.isArray(row) ? row[1] : row?.value || row?.detail,
+    }))
+    .filter((row) => row.name && row.detail);
+}
+
+function functionSteps(label, moment) {
+  const steps = (label?.panels?.function || moment?.panels?.function || [])
+    .map((step) => ({ text: step?.text || step?.title || "" }))
+    .filter((step) => step.text);
+  if (steps.length) return steps;
+  const highlights = (label?.highlights || []).filter(Boolean);
+  if (highlights.length) return highlights.map((text) => ({ text }));
+  return (moment?.points || []).filter(Boolean).map((text) => ({ text }));
 }
 
 async function readStudioStream(res, onEvent) {
@@ -140,14 +160,14 @@ function chapterSpan(item, next) {
 
 function StudioProgress({ progress, notice, detail, dark }) {
   return (
-    <div className={`relative h-12 overflow-hidden rounded-xl ${dark ? "bg-black/55" : "bg-white/10"}`}>
+    <div className={`relative h-11 overflow-hidden rounded-lg ${dark ? "bg-black/55" : "bg-white/10"}`}>
       <div className="absolute inset-y-0 left-0 bg-[#7C3AED] transition-[width] duration-300" style={{ width: `${progress}%` }} />
-      <div className="relative flex h-full flex-col justify-center gap-0.5 px-3 text-[0.72rem] font-semibold leading-tight text-white">
-        <span className="flex items-center justify-between gap-3">
+      <div className="relative flex h-full flex-col justify-center px-3 text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.75)]">
+        <span className="flex items-center justify-between gap-2 text-sm font-black leading-tight">
           <span className="truncate">{notice || "Planning"}</span>
-          <span>{progress}%</span>
+          <span className="shrink-0">{progress}%</span>
         </span>
-        <span className="truncate text-[0.68rem] font-medium text-white/75">{detail || "Waiting for the first image"}</span>
+        <span className="truncate text-xs font-bold leading-tight">{detail || "Waiting for the first image"}</span>
       </div>
     </div>
   );
@@ -159,6 +179,13 @@ function shortSpan(seconds) {
   const minutes = Math.max(1, Math.round(total / 60));
   return `${minutes} min`;
 }
+
+const FEATURED_LESSONS = [
+  { id: "1792264912207", name: "How a camera works", image: "/generated/studio/1792264912207/moment-1-image-frame-1.png" },
+  { id: "1792319727040", name: "Growth of parasites", image: "/generated/studio/1792319727040/moment-1-image-frame-1.png" },
+  { id: "1792267083335", name: "Golden Ratio in Nature", image: "/generated/studio/1792267083335/video/lesson-1792267083335-poster.jpg" },
+  { id: "1792271203406", name: "Tardigrade Biology", image: "/generated/studio/1792271203406/moment-1-image-frame-1.png" },
+];
 
 function localMockFallback() {
   return studioMocks.map((item) => ({
@@ -299,16 +326,18 @@ export function MockPicker() {
         <h1 className="m-0 text-center text-2xl font-black">Generated mocks</h1>
         <p className="m-0 mt-2 text-center text-sm font-bold text-white/55">Choose a lesson to open.</p>
         <div className="mt-6 grid gap-3">
-          {remoteMocks.map((item) => (
+          {FEATURED_LESSONS.map((item) => (
             <a
               key={item.id}
-              href={`/studio/mock/${item.id}`}
-              onClick={(event) => openStudioPath(event, `/studio/mock/${item.id}`)}
-              className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-2 text-white no-underline hover:bg-white/10"
+              href={`/studio/share/${item.id}`}
+              onClick={(event) => openStudioPath(event, `/studio/share/${item.id}`)}
+              className="flex min-h-16 items-stretch overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] text-white no-underline hover:bg-white/10"
             >
-              <TemplateThumbnail item={item} />
-              <span className="min-w-0 flex-1 text-sm font-black leading-snug">{item.name}</span>
-              <ArrowRight size={16} className="shrink-0 text-white/45" />
+              <span className="relative w-24 shrink-0 self-stretch bg-white/5">
+                <img src={item.image} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              </span>
+              <span className="min-w-0 flex-1 px-3 py-3 text-sm font-black leading-snug">{item.name}</span>
+              <ArrowRight size={16} className="mr-3 shrink-0 self-center text-white/45" />
             </a>
           ))}
         </div>
@@ -317,7 +346,7 @@ export function MockPicker() {
   );
 }
 
-export function Studio({ mockId = "" }) {
+export function Studio({ mockId = "", shareId = "" }) {
   const [remoteMocks, setRemoteMocks] = useState(() => hydrateTemplateMedia(localMockFallback()));
   const [remoteSavedSession, setRemoteSavedSession] = useState(null);
   useEffect(() => {
@@ -332,16 +361,16 @@ export function Studio({ mockId = "" }) {
   }, []);
   const mockSession = remoteMocks.find((item) => item.id === mockId)?.session || null;
   const mock = Boolean(mockSession);
-  const [prompt, setPrompt] = useState(() => (mockSession ? mockSession.prompt : readDraft()?.session?.prompt || ""));
-  const [busy, setBusy] = useState(() => !mockSession && Boolean(readDraft()?.busy));
-  const [progress, setProgress] = useState(() => (!mockSession && readDraft()?.progress) || 0);
-  const [notice, setNotice] = useState(() => (!mockSession && readDraft()?.notice) || "");
+  const [prompt, setPrompt] = useState(() => (shareId || mockSession ? "" : readDraft()?.session?.prompt || ""));
+  const [busy, setBusy] = useState(() => !shareId && !mockSession && Boolean(readDraft()?.busy));
+  const [progress, setProgress] = useState(() => (!shareId && !mockSession && readDraft()?.progress) || 0);
+  const [notice, setNotice] = useState(() => (!shareId && !mockSession && readDraft()?.notice) || "");
   const [statusLog, setStatusLog] = useState(() => {
-    const saved = !mockSession && readDraft()?.log;
+    const saved = !shareId && !mockSession && readDraft()?.log;
     return Array.isArray(saved) ? saved : [];
   });
   const [error, setError] = useState("");
-  const [session, setSession] = useState(() => mockSession || (!mockId && readDraft()?.session) || null);
+  const [session, setSession] = useState(() => (shareId ? null : mockSession || (!mockId && readDraft()?.session) || null));
   const [momentIndex, setMomentIndex] = useState(0);
   const [imageIndex, setImageIndex] = useState(0);
   const [focus, setFocus] = useState(() => (mockSession ? mockSession.moments[0].labels[0] : null));
@@ -351,7 +380,7 @@ export function Studio({ mockId = "" }) {
   const [functionStep, setFunctionStep] = useState(0);
   const [cropping, setCropping] = useState(false);
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState(() => savedChat(mockSession?.id || (!mockId && readDraft()?.session?.id)));
+  const [messages, setMessages] = useState(() => savedChat(shareId ? "" : mockSession?.id || (!mockId && readDraft()?.session?.id)));
   const [tutorBusy, setTutorBusy] = useState(false);
   const [history, setHistory] = useState(() => readHistory());
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -365,28 +394,30 @@ export function Studio({ mockId = "" }) {
   const structureWasOpen = useRef(true);
   const [starred, setStarred] = useState(() => readStarred());
   const [linkCopied, setLinkCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [learningStarted, setLearningStarted] = useState(() => {
-    if (mockId) return false;
+    if (shareId || mockId) return false;
     if (mockSession) return false;
     const draft = readDraft();
     if (draft?.session) return Boolean(draft.learningStarted);
     return true;
   });
-  const [lessonNote, setLessonNote] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [previewPlaying, setPreviewPlaying] = useState(false);
-  const [watchMode, setWatchMode] = useState(() => !mockSession && Boolean(readDraft()?.session));
+  const [watchMode, setWatchMode] = useState(() => !shareId && !mockSession && Boolean(readDraft()?.session));
   const [homeNav, setHomeNav] = useState("create");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const askRef = useRef(null);
   const chatEndRef = useRef(null);
+  const chatEpoch = useRef(0);
   const agentRef = useRef(null);
   const [flight, setFlight] = useState(null);
   const playbackRef = useRef(null);
   const previewVideoRef = useRef(null);
   const momentIndexRef = useRef(0);
   const bridgeTimer = useRef(null);
+  const releasingBridge = useRef(false);
   const handoffRef = useRef(false);
   const [bridge, setBridge] = useState(null);
   const [playToken, setPlayToken] = useState(0);
@@ -446,10 +477,16 @@ export function Studio({ mockId = "" }) {
   }, [videoFull]);
 
   useEffect(() => {
-    if (!playToken) return undefined;
+    if (!playToken || (bridge && !bridge.leaving)) return undefined;
     const timer = window.setTimeout(() => playbackRef.current?.play(), 80);
     return () => window.clearTimeout(timer);
-  }, [playToken]);
+  }, [playToken, bridge]);
+
+  useEffect(() => {
+    if (!bridge || bridge.done || bridge.leaving) return undefined;
+    playbackRef.current?.pause();
+    return undefined;
+  }, [bridge, momentIndex]);
 
   useEffect(() => () => {
     if (bridgeTimer.current) window.clearTimeout(bridgeTimer.current);
@@ -491,13 +528,13 @@ export function Studio({ mockId = "" }) {
   }, [session, watchMode, mock]);
 
   useEffect(() => {
-    if (mock) return;
+    if (mock || shareId) return;
     if (!session?.id) {
       clearDraft();
       return;
     }
     saveDraft({ session, notice, progress, busy, learningStarted, log: statusLog });
-  }, [session, notice, progress, busy, learningStarted, statusLog, mock]);
+  }, [session, notice, progress, busy, learningStarted, statusLog, mock, shareId]);
 
   useEffect(() => {
     if (mock || !busy) return undefined;
@@ -532,9 +569,70 @@ export function Studio({ mockId = "" }) {
   }, [busy, session?.id, mock]);
 
   useEffect(() => {
-    if (mock || !session?.id) return;
+    if (!shareId) return undefined;
+    let stop = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/studio/session/${shareId}`);
+        const data = await res.json().catch(() => ({}));
+        if (stop) return;
+        if (!res.ok || !(data.session || data.moments)) {
+          setError(data.error || "This shared lesson is not available.");
+          return;
+        }
+        const lesson = data.session || data;
+        setSession(lesson);
+        setWatchMode(true);
+        setLearningStarted(true);
+        setFocus(lesson.moments?.[0]?.labels?.[0] || null);
+        setNotice("");
+      } catch {
+        if (!stop) setError("This shared lesson is not available.");
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+  }, [shareId]);
+
+  useEffect(() => {
+    if (mock || shareId || !session?.id) return;
     storeChat(session.id, messages);
-  }, [messages, session?.id, mock]);
+  }, [messages, session?.id, mock, shareId]);
+
+  async function shareLesson() {
+    const id = String(session?.id || "");
+    if (!/^\d+$/.test(id) || sharing) return;
+    setSharing(true);
+    try {
+      const res = await fetch(`/api/studio/share/${id}`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) throw new Error(data.error || "Could not create a share link");
+      const link = new URL(data.url);
+      if (link.hostname === "localhost" || link.hostname === "127.0.0.1") {
+        const published = new URL(PUBLIC_APP_ORIGIN);
+        link.protocol = published.protocol;
+        link.host = published.host;
+      }
+      const shareUrl = link.toString();
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+      } catch {
+        const input = document.createElement("textarea");
+        input.value = shareUrl;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        input.remove();
+      }
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 1600);
+    } catch (err) {
+      setError(err.message || "Could not create a share link");
+    } finally {
+      setSharing(false);
+    }
+  }
 
   function applyMoment(index, seek) {
     const next = session?.moments?.[index];
@@ -544,6 +642,7 @@ export function Studio({ mockId = "" }) {
       bridgeTimer.current = null;
     }
     handoffRef.current = false;
+    releasingBridge.current = false;
     setBridge(null);
     trackAnalytics("moment_selected", { lessonId: analyticsLessonId, lessonTitle: session?.topic, chapterId: next.id || `chapter-${index + 1}`, chapterTitle: next.title, videoTimestampSec: next.seekSec ?? index * 8 });
     setMomentIndex(index);
@@ -595,22 +694,93 @@ export function Studio({ mockId = "" }) {
     const moments = session?.moments || [];
     const next = moments[current + 1];
     if (!next || !chapterClipFor(session, current + 1)) {
-      setBridge({ index: current, done: true });
+      setVideoFull(false);
+      setSidebarsHidden(false);
+      setStructureOpen(true);
+      if (next) {
+        setMomentIndex(current + 1);
+        setImageIndex(0);
+        setZoom(1);
+        setCropping(false);
+        setFocus(next.labels?.[0] || null);
+      }
+      handoffRef.current = false;
+      setBridge(null);
       return;
     }
-    setBridge({ index: current + 1, done: false });
+    playbackRef.current?.pause();
+    releasingBridge.current = false;
+    setBridge({ index: current + 1, done: false, leaving: false });
     setMomentIndex(current + 1);
     setImageIndex(0);
     setZoom(1);
     setCropping(false);
     setFocus(next.labels?.[0] || null);
     if (bridgeTimer.current) window.clearTimeout(bridgeTimer.current);
+    bridgeTimer.current = window.setTimeout(releaseBridge, CHAPTER_INTRO_MS);
+  }
+
+  function releaseBridge() {
+    if (releasingBridge.current) return;
+    releasingBridge.current = true;
+    if (bridgeTimer.current) {
+      window.clearTimeout(bridgeTimer.current);
+      bridgeTimer.current = null;
+    }
+    setBridge((card) => (card && !card.done ? { ...card, leaving: true } : card));
+    handoffRef.current = false;
+    setPlayToken((token) => token + 1);
     bridgeTimer.current = window.setTimeout(() => {
       bridgeTimer.current = null;
-      handoffRef.current = false;
-      setBridge(null);
-      setPlayToken((token) => token + 1);
-    }, 2500);
+      setBridge((card) => (card?.leaving ? null : card));
+    }, 500);
+  }
+
+  function missingStillCount(item) {
+    return (item?.images || []).filter((image) => !image?.url || image.error).length;
+  }
+
+  async function repairChapter(mode) {
+    const id = String(session?.id || "");
+    if (!/^\d+$/.test(id) || busy) return;
+    const chapter = momentIndex;
+    const item = session?.moments?.[chapter];
+    if (!item) return;
+    if (mode === "stills" && !missingStillCount(item)) return;
+    setBusy(true);
+    setError("");
+    setProgress(8);
+    setNotice(mode === "chapter" ? `Regenerating chapter ${chapter + 1}` : `Fixing missing stills in chapter ${chapter + 1}`);
+    setStatusLog([]);
+    try {
+      const res = await fetch("/api/studio/repair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({ id, chapter, mode }),
+      });
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Repair failed (${res.status})`);
+      }
+      await readStudioStream(res, (eventName, data) => {
+        if (eventName === "status") {
+          if (data.notice) setNotice(data.notice);
+          if (Array.isArray(data.log)) setStatusLog(data.log);
+          if (data.progress != null) setProgress(Math.max(0, Math.min(100, Math.round(data.progress))));
+          if (data.session) setSession(data.session);
+          if (data.done) setBusy(false);
+        }
+        if ((eventName === "session" || eventName === "done") && data.session) {
+          setSession(data.session);
+          if (data.done) setBusy(false);
+        }
+        if (eventName === "error") setError(data.error || "Repair failed");
+      });
+    } catch (err) {
+      setError(err.message || "Repair failed");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function generate(event, textOverride) {
@@ -690,10 +860,17 @@ export function Studio({ mockId = "" }) {
     }
   }
 
+  function closeChat() {
+    chatEpoch.current += 1;
+    setMessages([]);
+    setTutorBusy(false);
+  }
+
   async function askTutor(text) {
     const ask = String(text || "").trim();
     if (!ask || !label || tutorBusy) return;
     const history = messages;
+    const epoch = chatEpoch.current;
     setQuestion("");
     setMessages((prev) => [...prev, { role: "user", text: ask }]);
     setTutorBusy(true);
@@ -715,12 +892,14 @@ export function Studio({ mockId = "" }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Tutor failed");
+      if (chatEpoch.current !== epoch) return;
       setMessages((prev) => [...prev, { role: "assistant", text: data.answer, followUp: data.followUp }]);
       trackAnalytics("answer_generated", { lessonId: analyticsLessonId, lessonTitle: session?.topic, chapterId: moment?.id, chapterTitle: moment?.title, videoTimestampSec: moment?.seekSec ?? momentIndex * 8, answerStatus: data.source || "generated" });
     } catch (err) {
+      if (chatEpoch.current !== epoch) return;
       setMessages((prev) => [...prev, { role: "assistant", text: err.message }]);
     } finally {
-      setTutorBusy(false);
+      if (chatEpoch.current === epoch) setTutorBusy(false);
     }
   }
 
@@ -739,6 +918,14 @@ export function Studio({ mockId = "" }) {
     setQuestion("");
     setHistoryOpen(false);
     setLearningStarted(true);
+  }
+
+  function backToReady() {
+    playbackRef.current?.pause();
+    setVideoFull(false);
+    setSidebarsHidden(false);
+    setBridge(null);
+    setLearningStarted(false);
   }
 
   function goLanding(event) {
@@ -830,6 +1017,13 @@ export function Studio({ mockId = "" }) {
       : null);
   const chapterStill = moment?.images?.find((item) => item.url)?.url || null;
   const bridgeMoment = bridge ? session?.moments?.[bridge.index] : null;
+  if (shareId && !session) {
+    return (
+      <main className="grid h-screen place-items-center bg-black px-6 text-center font-[Inter,sans-serif] text-white">
+        <p className="m-0 max-w-md text-sm font-semibold text-white/80">{error || "Opening shared lesson…"}</p>
+      </main>
+    );
+  }
   return (
     <main className="relative flex h-screen overflow-hidden bg-black font-[Inter,sans-serif] text-[#e8eaed]">
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -840,9 +1034,6 @@ export function Studio({ mockId = "" }) {
           <span className="bg-gradient-to-r from-[#5b8cff] via-[#c084fc] to-[#fb923c] bg-clip-text text-transparent">Curio</span>
         </a>
         <div className="flex items-center gap-1">
-          <a href={analyticsHref} className="flex items-center gap-2 rounded-full border border-violet-300/30 bg-violet-500/10 px-3 py-2 text-sm font-black text-violet-100 no-underline hover:bg-violet-500/20">
-            <BarChart3 size={17} /> Content Insights
-          </a>
           <button
             type="button"
             className="flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-sm font-black text-white/80 hover:bg-white/10"
@@ -854,19 +1045,31 @@ export function Studio({ mockId = "" }) {
           </button>
           <button
             type="button"
-            className="grid h-9 w-9 place-items-center rounded-full border border-white/20 text-white"
+            className="grid h-9 w-9 place-items-center overflow-hidden rounded-full border border-white/20 bg-[#3b2468]"
             aria-label="Profile"
           >
-            <User size={18} />
+            <img src="/curio-person.svg" alt="" className="h-full w-full object-cover" />
           </button>
         </div>
       </header>
       ) : (
       <header className={`items-center justify-between px-4 py-3 ${videoFull ? "hidden" : "flex"}`}>
-        <a href="/studio" className="flex items-center gap-2 text-lg font-black tracking-[-0.03em]" onClick={goLanding}>
-          <img src="/curio-logo.png" alt="" className="h-8 w-8" />
-          <span className="bg-gradient-to-r from-[#5b8cff] via-[#c084fc] to-[#fb923c] bg-clip-text text-transparent">Curio</span>
-        </a>
+        <div className="flex items-center gap-2">
+          {learningStarted && session && (
+            <button
+              type="button"
+              className="flex items-center gap-1 rounded-full border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/85 hover:bg-white/10"
+              onClick={backToReady}
+            >
+              <ChevronLeft size={14} />
+              Back
+            </button>
+          )}
+          <a href="/studio" className="flex items-center gap-2 text-lg font-black tracking-[-0.03em]" onClick={goLanding}>
+            <img src="/curio-logo.png" alt="" className="h-8 w-8" />
+            <span className="bg-gradient-to-r from-[#5b8cff] via-[#c084fc] to-[#fb923c] bg-clip-text text-transparent">Curio</span>
+          </a>
+        </div>
         <nav className="flex items-center gap-1 rounded-full bg-white/5 p-1">
           <a href="/studio" onClick={goLanding} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black ${historyOpen ? "text-white/70 hover:bg-white/10" : "bg-[#4c1d95] text-white"}`}>
             <House size={14} /> Home
@@ -882,8 +1085,8 @@ export function Studio({ mockId = "" }) {
           <button type="button" className="grid h-9 w-9 place-items-center rounded-full text-white/80 hover:bg-white/10" aria-label="History" onClick={() => setHistoryOpen((open) => !open)}>
             <History size={18} />
           </button>
-          <button type="button" className="grid h-9 w-9 place-items-center rounded-full border border-white/20 text-white" aria-label="Profile">
-            <User size={18} />
+          <button type="button" className="grid h-9 w-9 place-items-center overflow-hidden rounded-full border border-white/20 bg-[#3b2468]" aria-label="Profile">
+            <img src="/curio-person.svg" alt="" className="h-full w-full object-cover" />
           </button>
         </div>
       </header>
@@ -927,18 +1130,18 @@ export function Studio({ mockId = "" }) {
           <div className="mx-auto mt-8 w-full max-w-5xl">
             <p className="m-0 mb-3 text-sm font-bold text-white/55">Check our Generated mocks</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {(remoteMocks.length ? remoteMocks : studioMocks).map((item) => (
+              {FEATURED_LESSONS.map((item) => (
                 <a
                   key={item.id}
-                  href={`/studio/mock/${item.id}`}
-                  onClick={(event) => openStudioPath(event, `/studio/mock/${item.id}`)}
-                  className="flex min-w-0 items-center gap-3 rounded-2xl border border-white/10 bg-black/40 p-2 text-left text-white no-underline hover:bg-white/10"
+                  href={`/studio/share/${item.id}`}
+                  onClick={(event) => openStudioPath(event, `/studio/share/${item.id}`)}
+                  className="flex min-h-16 min-w-0 items-stretch overflow-hidden rounded-2xl border border-white/10 bg-black/40 text-left text-white no-underline hover:bg-white/10"
                 >
-                  <span className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-white/5">
-                    {item.image && <img src={item.image} alt="" className="h-full w-full object-cover" />}
+                  <span className="relative w-24 shrink-0 self-stretch bg-white/5">
+                    <img src={item.image} alt="" className="absolute inset-0 h-full w-full object-cover" />
                   </span>
-                  <span className="min-w-0 flex-1 text-sm font-bold leading-snug">{item.name}</span>
-                  <ArrowRight size={16} className="shrink-0 text-white/45" />
+                  <span className="flex min-w-0 flex-1 items-center px-3 py-3 text-sm font-bold leading-snug">{item.name}</span>
+                  <ArrowRight size={16} className="mr-3 shrink-0 self-center text-white/45" />
                 </a>
               ))}
             </div>
@@ -952,14 +1155,14 @@ export function Studio({ mockId = "" }) {
       )}
       {showWorkspace && !learningStarted && (busy || session) && (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {busy && (
-            <div className="shrink-0 px-4 pt-3">
-              <StudioProgress progress={progress} notice={notice} detail={statusLog[statusLog.length - 1]} />
-            </div>
-          )}
           {error && !busy && <p className="m-0 shrink-0 px-4 pt-3 text-xs font-medium text-red-300">{error}</p>}
           <div className="flex min-h-0 flex-1 overflow-hidden">
-          <aside className="flex w-[380px] shrink-0 flex-col border-r border-white/10 bg-black px-4 py-5">
+          <aside className="flex w-[380px] shrink-0 flex-col border-r border-white/10 bg-black px-4 py-4">
+            {busy && (
+              <div className="mb-4">
+                <StudioProgress progress={progress} notice={notice} detail={statusLog[statusLog.length - 1]} />
+              </div>
+            )}
             <p className="m-0 text-base font-semibold">Lesson Structure</p>
             <p className="m-0 mt-1 text-xs font-medium text-white/40">{session.moments?.length || 0} chapters · {(() => {
               const total = session.video?.durationSeconds || (session.moments || []).reduce((sum, item, index, list) => sum + chapterSpan(item, list[index + 1]), 0);
@@ -1000,7 +1203,7 @@ export function Studio({ mockId = "" }) {
             <div className="sticky top-0 z-20 flex items-center gap-3 rounded-2xl border border-[#6d28d9]/40 bg-gradient-to-r from-[#2a1460] via-[#1a1038] to-[#120c24] px-3 py-3 shadow-[0_10px_40px_rgba(91,33,182,0.28)]">
               <img src="/curio-chat.png" alt="" className="h-20 w-24 shrink-0 object-contain" />
               <div className="min-w-0 flex-1">
-                <h1 className="m-0 text-2xl font-black tracking-tight">{busy ? "Building your lesson" : "Your Lesson is Ready!"}</h1>
+                <h1 className="m-0 text-2xl font-black tracking-tight">{busy ? <>Your lesson is generating<span className="lesson-dots" /></> : "Your Lesson is Ready!"}</h1>
                 <p className="m-0 mt-1 text-sm font-semibold text-white/90">{session.topic}</p>
                 <p className="m-0 mt-0.5 truncate text-xs font-medium text-white/55">{session.subtitle || session.learningGoal || session.prompt}</p>
               </div>
@@ -1008,8 +1211,8 @@ export function Studio({ mockId = "" }) {
                 <button type="button" className={`flex items-center gap-1.5 rounded-full border bg-black/20 px-3.5 py-2 text-xs font-semibold ${editOpen ? "border-[#c084fc]" : "border-white/20"}`} onClick={() => setEditOpen((open) => !open)}>
                   <Pencil size={13} /> Edit Lesson
                 </button>
-                <button type="button" className="flex items-center gap-1.5 rounded-full border border-white/20 bg-black/20 px-3.5 py-2 text-xs font-semibold" onClick={() => { navigator.clipboard?.writeText(window.location.href); setLinkCopied(true); window.setTimeout(() => setLinkCopied(false), 1600); }}>
-                  <Share2 size={13} /> {linkCopied ? "Copied" : "Share"}
+                <button type="button" className="flex items-center gap-1.5 rounded-full border border-white/20 bg-black/20 px-3.5 py-2 text-xs font-semibold disabled:opacity-40" disabled={!/^\d+$/.test(String(session?.id || "")) || sharing} onClick={shareLesson}>
+                  <Share2 size={13} /> {sharing ? "Sharing…" : linkCopied ? "Copied" : "Share"}
                 </button>
                 <button type="button" disabled={busy} className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[#7C3AED] to-[#a855f7] px-5 py-2.5 text-sm font-semibold shadow-[0_8px_24px_rgba(124,58,237,0.4)] disabled:opacity-45" onClick={() => {
                   trackAnalytics("lesson_started", { lessonId: analyticsLessonId, lessonTitle: session?.topic });
@@ -1165,33 +1368,44 @@ export function Studio({ mockId = "" }) {
           {editOpen && <aside className="flex w-72 shrink-0 flex-col border-l border-white/10 bg-black p-4">
             <div className="flex items-center gap-2">
               <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5b2a86] text-white"><Sparkles size={14} /></span>
-              <p className="m-0 text-sm font-semibold">Edit with Curio</p>
+              <p className="m-0 text-sm font-semibold">Edit lesson</p>
             </div>
-            <p className="m-0 mt-3 text-xs font-medium leading-snug text-white/45">Tell Curio what you want to change about this lesson. You can adjust the topic, depth, duration, or focus area.</p>
-            <img src="/curio-reply.png" alt="" className="mx-auto mt-3 h-24 w-24 object-contain" />
-            <p className="m-0 mt-3 text-xs font-semibold text-white/70">Try these suggestions:</p>
-            <div className="mt-2 grid gap-2">
-              {(session.id === "rocket-saved" || /rocket/i.test(session.topic || "")
-                ? ["Make it simpler for middle school students", "Add more real world examples", "Focus more on the science behind thrust", "Make it shorter (5 minutes)"]
-                : ["Make it simpler", "Add more real world examples", "Focus more on the main idea", "Make it shorter"]
-              ).map((idea) => (
-                <button key={idea} type="button" className="flex items-center justify-between gap-2 rounded-xl border border-white/10 px-3 py-2 text-left text-xs font-medium text-white/80" onClick={() => setLessonNote(idea)}>
-                  {idea} <ArrowRight size={12} className="shrink-0 text-white/35" />
-                </button>
-              ))}
+            <p className="m-0 mt-3 text-xs font-medium leading-snug text-white/45">Choose one chapter. The rest of the lesson stays as it is.</p>
+            <div className="mt-3 grid min-h-0 flex-1 content-start gap-0.5 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {(session.moments || []).map((item, index) => {
+                const missing = missingStillCount(item);
+                const selected = index === momentIndex;
+                return (
+                  <button
+                    key={item.id || index}
+                    type="button"
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs ${selected ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/[0.05]"}`}
+                    onClick={() => applyMoment(index, true)}
+                  >
+                    <span className="min-w-0 flex-1 truncate">Chapter {index + 1}. {item.title}</span>
+                    {missing > 0 && <span className="shrink-0 text-[0.65rem] font-medium text-amber-200">{missing} missing</span>}
+                  </button>
+                );
+              })}
             </div>
-            <form
-              className="mt-auto flex items-center gap-2 rounded-2xl border border-white/10 px-3 py-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                setLessonNote("");
-              }}
-            >
-              <input value={lessonNote} onChange={(event) => setLessonNote(event.target.value)} placeholder="Ask Curio to modify this lesson..." className="min-w-0 flex-1 bg-transparent text-xs font-medium outline-none placeholder:text-white/35" />
-              <button type="submit" className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#7C3AED]" aria-label="Send edit">
-                <Send size={14} />
+            <div className="mt-3 grid gap-0.5 border-t border-white/10 pt-2">
+              <button
+                type="button"
+                disabled={busy || !/^\d+$/.test(String(session?.id || ""))}
+                className="rounded-md px-2 py-1.5 text-left text-xs font-medium text-white/80 hover:bg-white/[0.05] disabled:opacity-40"
+                onClick={() => repairChapter("chapter")}
+              >
+                Regenerate this chapter
               </button>
-            </form>
+              <button
+                type="button"
+                disabled={busy || !missingStillCount(session.moments?.[momentIndex]) || !/^\d+$/.test(String(session?.id || ""))}
+                className="rounded-md px-2 py-1.5 text-left text-xs font-medium text-white/80 hover:bg-white/[0.05] disabled:opacity-40"
+                onClick={() => repairChapter("stills")}
+              >
+                Fix missing stills
+              </button>
+            </div>
           </aside>}
           </div>
         </div>
@@ -1346,25 +1560,11 @@ export function Studio({ mockId = "" }) {
                 <button
                   type="button"
                   className="flex items-center justify-center gap-1.5 rounded-xl border border-white/15 px-2 py-2.5 text-xs font-semibold text-white disabled:opacity-40"
-                  disabled={!session}
-                  onClick={async () => {
-                    const link = window.location.href;
-                    try {
-                      await navigator.clipboard.writeText(link);
-                    } catch {
-                      const input = document.createElement("textarea");
-                      input.value = link;
-                      document.body.appendChild(input);
-                      input.select();
-                      document.execCommand("copy");
-                      input.remove();
-                    }
-                    setLinkCopied(true);
-                    window.setTimeout(() => setLinkCopied(false), 1600);
-                  }}
+                  disabled={!/^\d+$/.test(String(session?.id || "")) || sharing}
+                  onClick={shareLesson}
                 >
                   <Share2 size={14} />
-                  {linkCopied ? "Copied" : "Share"}
+                  {sharing ? "Sharing…" : linkCopied ? "Copied" : "Share"}
                 </button>
                 <button
                   type="button"
@@ -1412,7 +1612,7 @@ export function Studio({ mockId = "" }) {
                   lang="en"
                   ageGroup="11-14"
                   captions
-                  autoPlay={learningStarted}
+                  autoPlay={learningStarted && !bridge}
                   playbackRef={playbackRef}
                   onTime={onTime}
                   onPrevious={momentIndex > 0 ? () => applyMoment(momentIndex - 1, true) : undefined}
@@ -1452,11 +1652,36 @@ export function Studio({ mockId = "" }) {
                 </div>
               )}
               {bridge && bridgeMoment && (
-                <div className="absolute inset-0 z-40 overflow-hidden rounded-xl bg-black">
+                <div className={`absolute inset-0 z-40 overflow-hidden rounded-xl bg-black transition-opacity duration-500 ${bridge.leaving ? "pointer-events-none opacity-0" : "opacity-100"}`}>
                   {bridgeMoment.images?.find((image) => image.url)?.url && (
                     <img src={bridgeMoment.images.find((image) => image.url).url} alt="" className="absolute inset-0 h-full w-full object-cover" />
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black via-black/75 to-black/25" />
+                  {!bridge.done && (
+                    <button
+                      type="button"
+                      className="absolute left-1/2 top-1/2 z-10 grid size-24 -translate-x-1/2 -translate-y-1/2 place-items-center text-white"
+                      onClick={releaseBridge}
+                      aria-label="Play chapter"
+                    >
+                      <svg className="absolute inset-0 size-full -rotate-90" viewBox="0 0 96 96" aria-hidden="true">
+                        <circle cx="48" cy="48" r="42" fill="rgba(0,0,0,0.45)" stroke="rgba(255,255,255,0.35)" strokeWidth="4" />
+                        <circle
+                          cx="48"
+                          cy="48"
+                          r="42"
+                          fill="none"
+                          stroke="white"
+                          strokeWidth="4"
+                          strokeLinecap="round"
+                          strokeDasharray="264"
+                          strokeDashoffset="264"
+                          style={{ animation: `chapter-ring ${CHAPTER_INTRO_MS}ms linear forwards` }}
+                        />
+                      </svg>
+                      <Play size={32} fill="currentColor" className="relative ml-1" />
+                    </button>
+                  )}
                   <div className="absolute inset-x-0 bottom-0 p-6">
                     <p className="m-0 text-sm font-semibold text-white/75">{bridge.done ? "Lesson complete" : `Chapter ${bridge.index + 1}`}</p>
                     <h2 className="m-0 mt-1 text-3xl font-black">{bridgeMoment.title}</h2>
@@ -1624,13 +1849,13 @@ export function Studio({ mockId = "" }) {
                 </div>
               )}
               {detailTab === "function" && (() => {
-                const steps = label?.panels?.function || moment?.panels?.function || [];
+                const steps = functionSteps(label, moment);
                 const active = Math.min(functionStep, Math.max(steps.length - 1, 0));
-                const functionFact = (label?.facts || moment?.facts || []).find((row) => Array.isArray(row) && /function/i.test(String(row[0])));
-                const lead = functionFact?.[1] || label?.blurb || moment?.caption;
+                const lead = label?.blurb || moment?.caption;
                 return (
                   <div className="shrink-0 px-4 pt-3">
-                    {lead && <p className="m-0 text-sm font-medium leading-snug text-white/55">{lead}</p>}
+                    {label?.text && <p className="m-0 text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-white/45">{label.text}</p>}
+                    {lead && <p className={`m-0 text-sm font-medium leading-snug text-white/55 ${label?.text ? "mt-2" : ""}`}>{lead}</p>}
                     {steps.length > 0 ? (
                       <div className="mt-4 border-t border-white/10 pt-5">
                         <div className="flex items-end justify-between gap-3">
@@ -1670,20 +1895,21 @@ export function Studio({ mockId = "" }) {
                         </div>
                       </div>
                     ) : (
-                      <p className="m-0 mt-4 text-sm font-medium text-white/45">Select a labelled part.</p>
+                      <p className="m-0 mt-4 text-sm font-medium text-white/45">This part has no function steps yet.</p>
                     )}
                   </div>
                 );
               })()}
               {detailTab === "structure" && (
                 <div className="grid shrink-0 gap-2 px-4 pt-3">
-                  {(label?.panels?.structure?.length ? label.panels.structure : structureRows(label)).map((row) => (
+                  {label?.text && <p className="m-0 text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-white/45">{label.text}</p>}
+                  {structureRows(label).map((row) => (
                     <div key={row.name} className="rounded-2xl border border-white/10 px-3 py-2.5">
                       <p className="m-0 text-sm font-semibold">{row.name}</p>
                       <p className="m-0 mt-0.5 text-xs font-medium leading-snug text-white/50">{row.detail}</p>
                     </div>
                   ))}
-                  {!(label?.panels?.structure?.length || structureRows(label).length) && <p className="m-0 text-sm font-medium text-white/45">Select a labelled part.</p>}
+                  {!structureRows(label).length && <p className="m-0 text-sm font-medium text-white/45">This part has no structure details yet.</p>}
                 </div>
               )}
             </div>
@@ -1709,6 +1935,11 @@ export function Studio({ mockId = "" }) {
                     </button>
                   </span>
                 )}
+                {(messages.length > 0 || tutorBusy) && (
+                  <button type="button" className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10" aria-label="Close chat" onClick={closeChat}>
+                    <X size={16} />
+                  </button>
+                )}
               </div>
               {(messages.length > 0 || tutorBusy) && (
                 <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -1716,7 +1947,9 @@ export function Studio({ mockId = "" }) {
                     msg.role === "user" ? (
                       <div key={`${msg.role}-${index}`} className="flex items-start justify-end gap-2">
                         <p className="m-0 max-w-[80%] rounded-2xl rounded-br-md border border-white/10 bg-[#2a2148] px-3 py-2 text-sm font-medium leading-snug">{msg.text}</p>
-                        <span className="h-7 w-7 shrink-0 rounded-full border border-white/15 bg-white/[0.03]" />
+                        <span className="grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-full border border-white/15 bg-[#3b2468]">
+                          <img src="/curio-person.svg" alt="" className="h-full w-full object-cover" />
+                        </span>
                       </div>
                     ) : (
                       <div key={`${msg.role}-${index}`} className="flex items-start gap-2">
@@ -1781,9 +2014,6 @@ export function Studio({ mockId = "" }) {
             transition: "left 640ms ease, top 640ms ease, width 640ms ease, height 640ms ease",
           }}
         />
-      )}
-      {session?.errors?.length > 0 && (
-        <p className="m-0 px-4 pb-3 text-xs font-bold text-[#f9a8d4]">{session.errors[session.errors.length - 1]}</p>
       )}
       </div>
       <aside

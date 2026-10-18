@@ -3,8 +3,6 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { savedRocketSession, studioMocks } from "../frontend/src/studio/studioMock.js";
-
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const project = process.env.GOOGLE_CLOUD_PROJECT || "project-6804402b-5017-4cc9-96c";
 const bucket = (process.env.GCS_BUCKET || `curio-assets-${project}`).replace(/^gs:\/\//, "").replace(/\/$/, "");
@@ -187,14 +185,30 @@ function patchTemplate(template, candidates) {
   return patched;
 }
 
-const generated = readGeneratedSessions();
-const templates = studioMocks.map((template) => patchTemplate(template, generated));
-const rocketCandidate = chooseCandidate({ id: "rocket" }, generated);
-let saved = savedRocketSession();
-if (rocketCandidate) saved = patchSessionMedia(saved, rocketCandidate);
-else if (!existsUrl(saved.video?.url)) saved.video = null;
+const FEATURED = [
+  ["1792264912207", "How a camera works", "moment-1-image-frame-1.png"],
+  ["1792319727040", "Growth of parasites", "moment-1-image-frame-1.png"],
+  ["1792258791298", "How a nerve cell sends a signal", "moment-1-image-wide.png"],
+  ["1792267083335", "Golden Ratio in Nature", "video/lesson-1792267083335-poster.jpg"],
+  ["1792271203406", "Tardigrade Biology", "moment-1-image-frame-1.png"],
+];
 
-const catalog = { version: 2, templates, savedRocketSession: saved };
+const generated = readGeneratedSessions();
+const byId = new Map(generated.map((item) => [item.id, item]));
+const templates = FEATURED.map(([id, name, image]) => {
+  const candidate = byId.get(id);
+  const session = candidate?.snapshot;
+  if (!session) console.warn(`Featured lesson ${id} has no local session.json`);
+  return {
+    id,
+    name: session?.topic || name,
+    image: `/generated/studio/${id}/${image}`,
+    session: session || null,
+  };
+});
+console.log(`Catalog lists ${templates.filter((item) => item.session).length} featured lessons`);
+
+const catalog = { version: 3, templates };
 const tempDir = mkdtempSync(path.join(tmpdir(), "curio-template-upload-"));
 try {
   // Upload media first so the catalog never points to files that have not arrived yet.

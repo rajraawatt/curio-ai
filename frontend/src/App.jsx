@@ -16,6 +16,8 @@ export function App() {
   const path = usePathname();
   if (path === "/analytics" || path.startsWith("/analytics/")) return <Analytics key="analytics" />;
   if (path.startsWith("/studio/mocks")) return <MockPicker key="studio-mocks" />;
+  const shareId = path.match(/^\/studio\/share\/(\d+)/)?.[1];
+  if (shareId) return <Studio key={`studio-share-${shareId}`} shareId={shareId} />;
   const mockId = path.match(/^\/studio\/mock\/([^/]+)/)?.[1];
   if (mockId) return <Studio key={`studio-mock-${mockId}`} mockId={mockId} />;
   if (path.startsWith("/studio/mock")) return <MockPicker key="studio-mocks" />;

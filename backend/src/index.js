@@ -1,6 +1,5 @@
 import "./env.js";
 import express from "express";
-import fs from "fs/promises";
 import path from "path";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
@@ -8,7 +7,8 @@ import { fileURLToPath } from "url";
 import { healthInfo, synthesizeSpeech } from "./gcp.js";
 import { askModelTutor } from "./modelTutor.js";
 import { analyticsRouter } from "./analyticsRoutes.js";
-import { generateStudioLesson } from "./studioGenerate.js";
+import { generateStudioLesson, repairStudioChapter } from "./studioGenerate.js";
+import { publishStudioSession, readStudioRecord } from "./studioPublish.js";
 import { readObject, streamObject } from "./storage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -80,15 +80,73 @@ app.post("/api/model-tutor", async (req, res) => {
   }
 });
 
+function publicOrigin(req) {
+  const configured = String(process.env.PUBLIC_APP_URL || "").replace(/\/$/, "");
+  if (configured) return configured;
+  const proto = req.get("x-forwarded-proto") || req.protocol || "https";
+  const host = req.get("x-forwarded-host") || req.get("host");
+  return `${proto}://${host}`;
+}
+
 app.get("/api/studio/session/:id", async (req, res) => {
   const id = String(req.params.id || "").replace(/[^\d]/g, "");
   if (!id) return res.status(400).json({ error: "Missing session" });
-  const file = path.join(__dirname, "../../frontend/public/generated/studio", id, "session.json");
   try {
-    const raw = await fs.readFile(file, "utf8");
-    res.json(JSON.parse(raw));
-  } catch {
-    res.status(404).json({ error: "Session not found" });
+    const record = await readStudioRecord(id);
+    if (!record) return res.status(404).json({ error: "Session not found" });
+    res.json(record);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message || "Session not found" });
+  }
+});
+
+app.post("/api/studio/share/:id", async (req, res) => {
+  const id = String(req.params.id || "").replace(/[^\d]/g, "");
+  if (!id) return res.status(400).json({ error: "Missing session" });
+  try {
+    await publishStudioSession(id);
+    res.json({ url: `${publicOrigin(req)}/studio/share/${id}` });
+  } catch (err) {
+    const status = err.status || 502;
+    const error = status === 403
+      ? "Cloud Storage refused the upload. The app needs permission to write lesson files."
+      : (err.message || "Could not create a share link");
+    res.status(status).json({ error });
+  }
+});
+
+app.post("/api/studio/repair", async (req, res) => {
+  const id = String(req.body?.id || "").replace(/[^\d]/g, "");
+  const chapter = Number(req.body?.chapter);
+  const mode = req.body?.mode === "chapter" || req.body?.mode === "stills" ? req.body.mode : "";
+  if (!id || !mode || !Number.isInteger(chapter) || chapter < 0) {
+    return res.status(400).json({ error: "Choose a chapter and what to regenerate" });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  try {
+    send("status", { notice: mode === "chapter" ? "Regenerating chapter" : "Fixing missing stills" });
+    const session = await repairStudioChapter({
+      id,
+      chapter,
+      mode,
+      onProgress: async ({ notice, progress, done, session: partial, log }) => {
+        if (notice || progress != null) send("status", { notice, progress, done, session: partial, log });
+        if (partial) send("session", { session: partial, done });
+      },
+    });
+    send("done", { ok: true, session });
+  } catch (err) {
+    console.error("[studio-repair]", err);
+    send("error", { error: err.message });
+  } finally {
+    res.end();
   }
 });
 
