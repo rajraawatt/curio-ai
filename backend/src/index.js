@@ -6,10 +6,37 @@ import { fileURLToPath } from "url";
 import { healthInfo, synthesizeSpeech } from "./gcp.js";
 import { askModelTutor } from "./modelTutor.js";
 import { generateStudioLesson } from "./studioGenerate.js";
+import { readObject } from "./storage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json({ limit: "2mb" }));
+
+app.get("/api/studio/templates", async (_req, res) => {
+  try {
+    const asset = await readObject("studio/templates.json");
+    res.set("Cache-Control", "no-store");
+    res.set("Content-Type", "application/json");
+    res.send(asset.body);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message || "Template catalog unavailable" });
+  }
+});
+
+app.get(/^\\/generated\\/studio\\/(.+)$/, async (req, res, next) => {
+  const name = `studio/${req.params[0]}`;
+  if (name.split("/").some((part) => !part || part === "." || part === "..")) return res.status(400).json({ error: "Invalid asset path" });
+  try {
+    const asset = await readObject(name);
+    res.set("Content-Type", asset.contentType);
+    res.set("Cache-Control", "public, max-age=300");
+    return res.send(asset.body);
+  } catch (err) {
+    if (err.status === 404) return next();
+    console.error("[template-asset]", name, err.message);
+    return res.status(err.status || 502).json({ error: "Template asset could not be loaded from Cloud Storage" });
+  }
+});
 
 app.get("/api/health", (_req, res) => {
   res.json(healthInfo());
