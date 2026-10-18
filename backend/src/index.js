@@ -2,11 +2,14 @@ import "./env.js";
 import express from "express";
 import fs from "fs/promises";
 import path from "path";
+import { Readable } from "stream";
+import { pipeline } from "stream/promises";
 import { fileURLToPath } from "url";
 import { healthInfo, synthesizeSpeech } from "./gcp.js";
 import { askModelTutor } from "./modelTutor.js";
+import { analyticsRouter } from "./analyticsRoutes.js";
 import { generateStudioLesson } from "./studioGenerate.js";
-import { readObject } from "./storage.js";
+import { readObject, streamObject } from "./storage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -27,16 +30,24 @@ app.get(/^\/generated\/studio\/(.+)$/, async (req, res, next) => {
   const name = `studio/${req.params[0]}`;
   if (name.split("/").some((part) => !part || part === "." || part === "..")) return res.status(400).json({ error: "Invalid asset path" });
   try {
-    const asset = await readObject(name);
-    res.set("Content-Type", asset.contentType);
+    const asset = await streamObject(name, { range: req.headers.range, method: req.method });
+    res.status(asset.status);
+    for (const header of ["accept-ranges", "content-length", "content-range", "content-type", "etag", "last-modified"]) {
+      const value = asset.headers.get(header);
+      if (value) res.set(header, value);
+    }
     res.set("Cache-Control", "public, max-age=300");
-    return res.send(asset.body);
+    if (req.method === "HEAD" || !asset.body) return res.end();
+    return await pipeline(Readable.fromWeb(asset.body), res);
   } catch (err) {
+    if (res.headersSent) return res.destroy(err);
     if (err.status === 404) return next();
     console.error("[template-asset]", name, err.message);
     return res.status(err.status || 502).json({ error: "Template asset could not be loaded from Cloud Storage" });
   }
 });
+
+app.use("/api/analytics", analyticsRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json(healthInfo());
