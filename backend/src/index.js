@@ -23,7 +23,7 @@ app.get("/api/studio/templates", async (_req, res) => {
   }
 });
 
-app.get(/^\\/generated\\/studio\\/(.+)$/, async (req, res, next) => {
+app.get(/^\/generated\/studio\/(.+)$/, async (req, res, next) => {
   const name = `studio/${req.params[0]}`;
   if (name.split("/").some((part) => !part || part === "." || part === "..")) return res.status(400).json({ error: "Invalid asset path" });
   try {
