@@ -110,11 +110,15 @@ function scoreCandidate(template, candidate) {
 function chooseCandidate(template, candidates) {
   const ranked = candidates
     .filter((candidate) => candidate.videoUrl || candidate.imageUrl)
-    .map((candidate) => ({ candidate, score: scoreCandidate(template, candidate) }))
+    .map((candidate) => ({
+      candidate,
+      score: scoreCandidate(template, candidate),
+      completeness: (candidate.videoUrl?.includes("/lesson-") ? 4 : candidate.videoUrl ? 2 : 0) + (candidate.posterUrl ? 1 : 0) + (candidate.imageUrl ? 1 : 0),
+    }))
     .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.score - a.score || b.completeness - a.completeness || b.candidate.id.localeCompare(a.candidate.id));
   if (!ranked.length) return null;
-  if (ranked.length > 1 && ranked[0].score === ranked[1].score) {
+  if (ranked.length > 1 && ranked[0].score === ranked[1].score && ranked[0].completeness === ranked[1].completeness) {
     console.warn(`Ambiguous media match for "${template.id}"; leaving its original media rather than assigning an unrelated lesson.`);
     return null;
   }
