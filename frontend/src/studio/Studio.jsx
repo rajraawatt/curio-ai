@@ -3,7 +3,7 @@ import {
   Activity, ArrowRight, AudioLines, BarChart3, BookOpen, Bookmark, Box, Check, ChevronLeft, ChevronRight, Clock, Crop, Download, Hand, History, House, Loader2, Lock, MoreHorizontal, PanelLeft, Pencil, Play, Plus, Search, Send, Share2, Sparkles, Star, Target, User, X, Zap, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { LessonClipPlayer } from "./LessonClipPlayer.jsx";
-import { savedRocketSession } from "./studioMock.js";
+import { savedRocketSession, studioMocks } from "./studioMock.js";
 import { clearDraft, hasLessonAssets, readDraft, readHistory, readStarred, saveDraft, savedChat, storeChat, writeHistory, writeStarred } from "./storage.js";
 
 function usesChapterFiles(session) {
@@ -153,6 +153,7 @@ function openStudioPath(event, href) {
 
 export function MockPicker() {
   const [remoteMocks, setRemoteMocks] = useState([]);
+  const [, setRemoteSavedSession] = useState(null);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/studio/templates")
@@ -800,7 +801,7 @@ export function Studio({ mockId = "" }) {
           <div className="mx-auto mt-8 w-full max-w-5xl">
             <p className="m-0 mb-3 text-sm font-bold text-white/55">Check our Generated mocks</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {studioMocks.map((item) => (
+              {(remoteMocks.length ? remoteMocks : studioMocks).map((item) => (
                 <a
                   key={item.id}
                   href={`/studio/mock/${item.id}`}
