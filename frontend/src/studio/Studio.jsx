@@ -3,7 +3,7 @@ import {
   Activity, ArrowRight, AudioLines, BarChart3, BookOpen, Bookmark, Box, Check, ChevronLeft, ChevronRight, Clock, Crop, Download, Hand, History, House, Loader2, Lock, MoreHorizontal, PanelLeft, Pencil, Play, Plus, Search, Send, Share2, Sparkles, Star, Target, User, X, Zap, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { LessonClipPlayer } from "./LessonClipPlayer.jsx";
-import { savedRocketSession, studioMocks } from "./studioMock.js";
+import { savedRocketSession } from "./studioMock.js";
 import { clearDraft, hasLessonAssets, readDraft, readHistory, readStarred, saveDraft, savedChat, storeChat, writeHistory, writeStarred } from "./storage.js";
 
 function usesChapterFiles(session) {
@@ -152,6 +152,16 @@ function openStudioPath(event, href) {
 }
 
 export function MockPicker() {
+  const [remoteMocks, setRemoteMocks] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/studio/templates")
+      .then((res) => { if (!res.ok) throw new Error("Template catalog unavailable"); return res.json(); })
+      .then((data) => { if (!cancelled && Array.isArray(data.templates)) setRemoteMocks(data.templates); })
+      .catch((err) => console.error("[studio-templates]", err));
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     const previous = document.body.style.background;
     document.body.style.background = "#000";
@@ -176,7 +186,7 @@ export function MockPicker() {
         <h1 className="m-0 text-center text-2xl font-black">Generated mocks</h1>
         <p className="m-0 mt-2 text-center text-sm font-bold text-white/55">Choose a lesson to open.</p>
         <div className="mt-6 grid gap-3">
-          {studioMocks.map((item) => (
+          {remoteMocks.map((item) => (
             <a
               key={item.id}
               href={`/studio/mock/${item.id}`}
@@ -195,7 +205,16 @@ export function MockPicker() {
 }
 
 export function Studio({ mockId = "" }) {
-  const mockSession = studioMocks.find((item) => item.id === mockId)?.session || null;
+  const [remoteMocks, setRemoteMocks] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/studio/templates")
+      .then((res) => { if (!res.ok) throw new Error("Template catalog unavailable"); return res.json(); })
+      .then((data) => { if (!cancelled && Array.isArray(data.templates)) setRemoteMocks(data.templates); })
+      .catch((err) => console.error("[studio-templates]", err));
+    return () => { cancelled = true; };
+  }, []);
+  const mockSession = remoteMocks.find((item) => item.id === mockId)?.session || null;
   const mock = Boolean(mockSession);
   const [prompt, setPrompt] = useState(() => (mockSession ? mockSession.prompt : readDraft()?.session?.prompt || ""));
   const [busy, setBusy] = useState(() => !mockSession && Boolean(readDraft()?.busy));
@@ -254,6 +273,13 @@ export function Studio({ mockId = "" }) {
   const handoffRef = useRef(false);
   const [bridge, setBridge] = useState(null);
   const [playToken, setPlayToken] = useState(0);
+
+  useEffect(() => {
+    if (!mockId || !mockSession) return;
+    setSession(mockSession);
+    setPrompt(mockSession.prompt || "");
+    setFocus(mockSession.moments?.[0]?.labels?.[0] || null);
+  }, [mockId, mockSession?.id]);
 
   const moment = session?.moments?.[momentIndex] || null;
   const images = moment?.images || [];
