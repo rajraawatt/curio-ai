@@ -12,14 +12,19 @@ function clipCues(clip) {
     : clip?.narration
       ? [{ atSec: 0, text: clip.narration }]
       : [];
-  if ((Number(clip?.durationSeconds) || 0) > 12 && raw.some((cue) => Number(cue.atSec) >= 6)) return raw;
-  if (raw.length >= 3) {
-    return [
-      { ...raw[0], atSec: 0 },
-      { ...raw[raw.length - 1], atSec: 4.2 },
-    ];
-  }
-  return raw;
+  const cues = (Number(clip?.durationSeconds) || 0) > 12 && raw.some((cue) => Number(cue.atSec) >= 6)
+    ? raw
+    : raw.length >= 3
+      ? [{ ...raw[0], atSec: 0 }, { ...raw[raw.length - 1], atSec: 4.2 }]
+      : raw;
+  // The picture dissolves for 0.8s at each join. Keep the next line until that dissolve is over
+  // so it does not sit on top of the clip that is still playing.
+  return cues.map((cue, index) => {
+    if (!index) return cue;
+    const at = Number(cue.atSec || 0);
+    if (at <= 0) return cue;
+    return { ...cue, atSec: at + 0.8 };
+  });
 }
 
 function captionSpeechSeconds(text, ageGroup) {
@@ -95,7 +100,7 @@ export function LessonClipPlayer({
   const finishedRef = useRef(-1);
   const [time, setTime] = useState(0);
   const [reading, setReading] = useState(-1);
-  const fileHasVoice = Boolean(clip?.voiced) || (wide && (Number(clip?.durationSeconds) || 0) > 16);
+  const fileHasVoice = Boolean(clip?.voiced) || wide || (Number(clip?.durationSeconds) || 0) > 8;
   const cues = fileHasVoice && !clip?.voiced ? [] : clipCues(clip);
   const dueIndex = cueIndex(cues, time);
   const line = cueText(cues[reading >= 0 ? reading : dueIndex], lang);

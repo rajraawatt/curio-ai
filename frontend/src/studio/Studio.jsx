@@ -664,11 +664,10 @@ export function Studio({ mockId = "", shareId = "" }) {
     if (usesChapterFiles(session)) {
       const chapter = session?.moments?.[momentIndexRef.current];
       const count = chapter?.images?.length || 1;
-      const step = chapter?.clip?.stepSeconds || 8;
-      const endAt = Math.max(count - 1, 0) * step;
-      const frame = count > 1 && time >= endAt - 0.35
+      const played = chapter?.clip?.durationSeconds || 0;
+      const frame = count > 1 && played && time >= played - 0.45
         ? count - 1
-        : Math.min(Math.floor(Math.max(time, 0) / step), Math.max(count - 1, 0));
+        : Math.min(Math.floor(Math.max(time, 0) / 8), Math.max(count - 1, 0));
       setImageIndex((current) => (current === frame ? current : frame));
       return;
     }
@@ -1719,8 +1718,9 @@ export function Studio({ mockId = "", shareId = "" }) {
                         return;
                       }
                       setImageIndex(index);
-                      const at = index * (moment?.clip?.stepSeconds || 8);
-                      playbackRef.current?.seek(index >= images.length - 1 ? Math.max(at - 0.3, 0) : at);
+                      const played = moment?.clip?.durationSeconds || images.length * 8;
+                      const at = index >= images.length - 1 ? Math.max(played - 0.4, 0) : index * 8;
+                      playbackRef.current?.seek(at);
                     }}
                     disabled={images.length ? !moment : !item?.id}
                   >
@@ -1728,7 +1728,7 @@ export function Studio({ mockId = "", shareId = "" }) {
                       {thumb?.url ? <img src={thumb.url} alt="" className="h-full w-full object-cover" /> : busy ? <Loader2 size={16} className="animate-spin text-white/40" /> : item?.error ? <span className="px-2 text-center text-[0.65rem] font-semibold text-white/45">Missed</span> : null}
                       <span className={`absolute left-1 top-1 grid h-5 w-5 place-items-center rounded-full text-[0.65rem] font-black text-white ${active ? "bg-[#7C3AED]" : "bg-black/70"}`}>{index + 1}</span>
                     </div>
-                    <span className="block px-2 py-1 text-[0.68rem] font-bold text-white/45">{clock(images.length ? index * (moment?.clip?.stepSeconds || 8) : (item?.seekSec ?? index * 8))}</span>
+                    <span className="block px-2 py-1 text-[0.68rem] font-bold text-white/45">{clock(images.length ? (index >= images.length - 1 ? Math.max((moment?.clip?.durationSeconds || images.length * 8) - 0.4, 0) : index * 8) : (item?.seekSec ?? index * 8))}</span>
                   </button>
                 );
               })}
